@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Free HTML Games Hub</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: #f6f8fa;
+            color: #24292f;
+            max-width: 600px;
+            margin: 40px auto;
+            padding: 20px;
+        }
+        h1 {
+            border-bottom: 1px solid #d0d7de;
+            padding-bottom: 10px;
+            text-align: center;
+        }
+        .game-list {
+            margin-top: 20px;
+        }
+        .game-card {
+            background: white;
+            border: 1px solid #d0d7de;
+            border-radius: 6px;
+            padding: 16px;
+            margin-bottom: 16px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .game-title {
+            font-weight: 600;
+            font-size: 1.1rem;
+        }
+        .actions {
+            display: flex;
+            gap: 10px;
+        }
+        .btn-play {
+            background-color: #2da44e;
+            color: white;
+            padding: 6px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.9rem;
+            font-weight: 500;
+        }
+        .btn-play:hover { background-color: #2c974b; }
+        .btn-download {
+            background-color: #f6f8fa;
+            color: #24292f;
+            border: 1px solid #d0d7de;
+            padding: 6px 12px;
+            border-radius: 6px;
+            text-decoration: none;
+            font-size: 0.9rem;
+        }
+        .btn-download:hover { background-color: #f3f4f6; }
+    </style>
+</head>
+<body>
+
+    <h1>Free HTML Games Hub</h1>
+    <p style="text-align: center; color: #57606a;">Click "Play Game" to run it live, or "Download" to save the HTML file.</p>
+
+    <div class="game-list">
+        
+        <!-- Game 1 -->
+        <div class="game-card">
+            <span class="game-title">Solitaire</span>
+            <div class="actions">
+                <a href="solitaire.HTML" class="btn-play">Play Game</a>
+                <a href="solitaire.HTML" download="solitaire.HTML" class="btn-download">Download</a>
+            </div>
+        </div>
+
+        <!-- Game 2 -->
+        <div class="game-card">
+            <span class="game-title">Backgammon</span>
+            <div class="actions">
+                <a href="backgammon.html" class="btn-play">Play Game</a>
+                <a href="backgammon.html" download="backgammon.html" class="btn-download">Download</a>
+            </div>
+        </div>
+
+        <!-- Game 3 -->
+        <div class="game-card">
+            <span class="game-title">Joe Spanish Game</span>
+            <div class="actions">
+                <a href="JoeSpanishGame.html" class="btn-play">Play Game</a>
+                <a href="JoeSpanishGame.html" download="JoeSpanishGame.html" class="btn-download">Download</a>
+            </div>
+        </div>
+
+    </div>
+
+</body>
+</html>
