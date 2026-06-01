@@ -94,7 +94,15 @@
                 <a href="JoeSpanishGame.html" download="JoeSpanishGame.html" class="btn-download">Download</a>
             </div>
         </div>
-
+ 
+		<!-- Game 4 -->
+        <div class="game-card">
+            <span class="game-title">PC_Solitare</span>
+            <div class="actions">
+                <a href="solitaire - PCWorks.HTML" class="btn-play">Play Game</a>
+                <a href="solitaire - PCWorks.HTML" download="solitaire - PCWorks.HTML" class="btn-download">Download</a>
+            </div>
+        </div>
     </div>
 
 </body>
