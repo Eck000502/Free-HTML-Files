@@ -1,0 +1,467 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Premium Hand-Crafted Backgammon</title>
+</head>
+<body>
+<div id="rotation-overlay"><div class="phone-icon"></div><h2>Rotate your device to Landscape</h2></div>
+<div id="win-modal" class="modal-layer">
+    <div class="modal-box">
+        <h2 id="modal-win-text">🏆 MATCH COMPLETED</h2>
+        <p id="modal-score-line">Wins: 0 - 0</p>
+        <button onclick="resetGameMatch()">Play Again</button>
+    </div>
+</div>
+<div id="game-container">
+    <div id="info-text">Your turn (Mother of Pearl) - Roll the dice to begin</div>
+    <div id="board">
+        <!-- TOP ROW -->
+        <div class="board-row">
+            <div class="board-half" id="board-top-left">
+                <div class="point point-top" data-idx="12"></div>
+                <div class="point point-top" data-idx="13"></div>
+                <div class="point point-top" data-idx="14"></div>
+                <div class="point point-top" data-idx="15"></div>
+                <div class="point point-top" data-idx="16"></div>
+                <div class="point point-top" data-idx="17"></div>
+            </div>
+            <div class="divider">
+                <div class="bar-zone" id="bar-p2"></div>
+                <div class="bar-zone" id="bar-p1"></div>
+            </div>
+            <div class="board-half" id="board-top-right">
+                <div class="point point-top" data-idx="18"></div>
+                <div class="point point-top" data-idx="19"></div>
+                <div class="point point-top" data-idx="20"></div>
+                <div class="point point-top" data-idx="21"></div>
+                <div class="point point-top" data-idx="22"></div>
+                <div class="point point-top" data-idx="23"></div>
+            </div>
+            <div class="bear-zone-container" id="tray-box-p2">
+                <div class="off-tray" id="off-p2"></div>
+            </div>
+        </div>
+        <!-- BOTTOM ROW -->
+        <div class="board-row">
+            <div class="board-half" id="board-bottom-left">
+                <div class="point point-bottom" data-idx="11"></div>
+                <div class="point point-bottom" data-idx="10"></div>
+                <div class="point point-bottom" data-idx="9"></div>
+                <div class="point point-bottom" data-idx="8"></div>
+                <div class="point point-bottom" data-idx="7"></div>
+                <div class="point point-bottom" data-idx="6"></div>
+            </div>
+            <div class="divider"></div>
+            <div class="board-half" id="board-bottom-right">
+                <div class="point point-bottom" data-idx="5"></div>
+                <div class="point point-bottom" data-idx="4"></div>
+                <div class="point point-bottom" data-idx="3"></div>
+                <div class="point point-bottom" data-idx="2"></div>
+                <div class="point point-bottom" data-idx="1"></div>
+                <div class="point point-bottom" data-idx="0"></div>
+            </div>
+            <div class="bear-zone-container" id="tray-box-p1">
+                <div class="off-tray" id="off-p1"></div>
+            </div>
+        </div>
+    </div>
+    <div id="controls">
+		<div class="btn-group">
+		<span class="label">Leather:</span>
+		<button onclick="changeBoardLeather('crimson')">Crimson</button>
+		<button onclick="changeBoardLeather('navy')">Navy</button>
+		<button onclick="changeBoardLeather('green')">Green</button>
+		</div>
+
+        <button id="roll-btn" onclick="userRollDice()">Roll Dice</button>
+        <div id="dice-display">- -</div>
+        <button id="pass-btn" onclick="manualPassTurn()">Pass Turn</button>
+        <div class="btn-group">
+            <span class="label">AI Skill:</span>
+            <button id="ai-easy" class="mode-btn" onclick="setDifficulty('easy')">Easy</button>
+            <button id="ai-adv" class="mode-btn active" onclick="setDifficulty('advanced')">Adv</button>
+            <button id="ai-exp" class="mode-btn" onclick="setDifficulty('expert')">Expert</button>
+        </div>
+        <div class="btn-group">
+            <span class="label">Scale:</span>
+            <button onclick="adjustScaling(-0.05)">-</button>
+            <button onclick="adjustScaling(0.05)">+</button>
+        </div>
+    </div>
+</div>
+<style>
+    :root { 
+        --bg: #3a1e05; --dark: #801010; --light: #dcc299; --p1: #fbfbf9; --p2: #1e2124; --scale: 1.0; 
+        /* Permanent leather texture overlay effect layer configuration */
+        --leather-pattern: radial-gradient(circle at 1px 1px, rgba(0,0,0,0.18) 1px, transparent 0);
+    }
+    html, body { width: 100%; height: 100%; margin: 0; padding: 0; background: #111215; font-family: 'Georgia', serif; overflow: hidden; }
+    body { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; padding: 15px; box-sizing: border-box; }
+    
+    #rotation-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: #111; color: #fff; display: none; flex-direction: column; align-items: center; justify-content: center; z-index: 9999; text-align: center; }
+    .phone-icon { width: 50px; height: 80px; border: 4px solid #fff; border-radius: 10px; position: relative; animation: rot 2s ease-in-out infinite; margin-bottom: 20px; }
+    @keyframes rot { 0% { transform: rotate(0deg); } 50% { transform: rotate(90deg); } 100% { transform: rotate(90deg); } }
+    @media (orientation: portrait) and (max-width: 900px) { #rotation-overlay { display: flex; } #game-container { display: none; } }
+    
+    #game-container { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 1020px; gap: 10px; margin: 0 auto; }
+</style>
+<style>
+    /* Heavy solid mahogany cabinet structure wrap framework */
+    #board { 
+        display: flex; flex-direction: column; width: 100%; 
+        height: calc(62vh * var(--scale)); min-height: calc(310px * var(--scale)); max-height: calc(510px * var(--scale)); 
+        background: var(--bg);
+        background-image: 
+            linear-gradient(rgba(0, 0, 0, 0.2) 0%, rgba(0, 0, 0, 0) 100%),
+            var(--leather-pattern);
+        background-size: 100% 100%, calc(3px * var(--scale)) calc(3px * var(--scale));
+        border: calc(14px * var(--scale)) solid #1d0f04; 
+        border-radius: 6px; box-sizing: border-box; position: relative; 
+        box-shadow: 0 20px 45px rgba(0,0,0,0.85), inset 0 0 35px rgba(0,0,0,0.7);
+    }
+    
+    /* LEATHER MODELLING SCHEMES SWITCH VARIABLES OVERRIDES */
+    #board.theme-crimson { --bg: #6e1116; --dark: #f0e1cd; --light: #bc9353; }
+    #board.theme-navy { --bg: #14233c; --dark: #3a2211; --light: #cfb997; }
+    #board.theme-green { --bg: #133a22; --dark: #a12328; --light: #eddcb4; }
+
+    .board-row { display: flex; height: 50%; width: 100%; }
+    .board-half { display: flex; width: 42%; height: 100%; }
+    
+    .divider { 
+        width: 10%; background: #1c0f04; height: 100%; 
+        background-image: linear-gradient(90deg, rgba(0,0,0,0.5), transparent 20%, transparent 80%, rgba(0,0,0,0.5));
+        box-shadow: inset 0 0 15px rgba(0,0,0,0.9); 
+        display: flex; flex-direction: column; justify-content: space-between; align-items: center; padding: calc(8px * var(--scale)) 0; box-sizing: border-box; 
+    }
+</style>
+<style>
+    .bear-zone-container { width: 6%; background: #150b03; height: 100%; border-left: calc(4px * var(--scale)) solid #1d0f04; display: flex; align-items: center; justify-content: center; box-sizing: border-box; cursor: pointer; box-shadow: inset 5px 0 15px rgba(0,0,0,0.6); }
+    .off-tray { display: flex; flex-direction: column; gap: 2px; align-items: center; width: 100%; height: 90%; overflow: hidden; }
+    .bar-zone { display: flex; flex-direction: column; gap: 4px; align-items: center; height: 40%; width: 100%; position: relative; }
+
+    .point { flex: 1; height: 100%; position: relative; cursor: pointer; transition: background 0.12s ease; touch-action: manipulation; box-sizing: border-box; }
+    .point-top { clip-path: polygon(0 0, 100% 0, 50% 92%); }
+    .point-bottom { clip-path: polygon(50% 8%, 0 100%, 100% 100%); }
+    
+    #board-top-left .point:nth-child(odd), #board-bottom-right .point:nth-child(odd) { background: var(--dark); background-image: linear-gradient(rgba(0,0,0,0.25), transparent, rgba(0,0,0,0.3)); }
+    #board-top-left .point:nth-child(even), #board-bottom-right .point:nth-child(even) { background: var(--light); background-image: linear-gradient(rgba(0,0,0,0.1), transparent, rgba(0,0,0,0.15)); }
+    #board-top-right .point:nth-child(odd), #board-bottom-left .point:nth-child(odd) { background: var(--light); background-image: linear-gradient(rgba(0,0,0,0.1), transparent, rgba(0,0,0,0.15)); }
+    #board-top-right .point:nth-child(even), #board-bottom-left .point:nth-child(even) { background: var(--dark); background-image: linear-gradient(rgba(0,0,0,0.25), transparent, rgba(0,0,0,0.3)); }
+    
+    .point.highlighted { 
+        background: #39e75c !important;
+        background-image: linear-gradient(rgba(255,255,255,0.4), transparent, rgba(0,0,0,0.3)) !important;
+        filter: brightness(1.25) drop-shadow(0 0 2px rgba(255,255,255,0.5)) !important;
+    }
+    .bear-zone-container.highlighted { box-shadow: inset 0 0 30px rgba(57, 231, 92, 0.9), 0 0 15px rgba(57, 231, 92, 0.6) !important; background: #1c3d1e !important; }
+    
+    .checker { width: calc(3.2vw * var(--scale)); height: calc(3.2vw * var(--scale)); max-width: calc(34px * var(--scale)); max-height: calc(34px * var(--scale)); border-radius: 50%; box-sizing: border-box; flex-shrink: 0; }
+    .point .checker { position: absolute; left: 50%; transform: translateX(-50%); }
+    .off-tray .checker { width: 84%; height: calc(9px * var(--scale)); border-radius: 3px; border: 1px solid rgba(0,0,0,0.4); }
+    
+    .c1 { background: radial-gradient(circle at 35% 35%, #ffffff 0%, #f4f4f0 25%, #e1dfd5 60%, #b8b5a0 100%); border: 1px solid #c2bfae; box-shadow: inset -2px -2px 4px rgba(0,0,0,0.2), 0 3px 6px rgba(0,0,0,0.4); }
+    .c2 { background: radial-gradient(circle at 35% 35%, #44464a 0%, #1e2124 30%, #0d0e10 80%, #050506 100%); border: 1px solid #2a2c30; box-shadow: inset -2px -2px 4px rgba(0,0,0,0.6), 0 3px 6px rgba(0,0,0,0.5); }
+</style>
+<style>
+    #info-text { font-size: 16px; font-weight: bold; background: #18191a; color: #dfb26c; padding: 12px 20px; border-radius: 6px; border-left: 5px solid #007bff; width: 100%; box-sizing: border-box; text-align: left; margin-bottom: 2px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
+    #controls { display: flex; gap: 15px; align-items: center; justify-content: flex-start; background: #1f2023; padding: 12px 30px; border-radius: 8px; width: 100%; box-sizing: border-box; flex-wrap: wrap; box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1); border: 1px solid #151617; }
+    .btn-group { display: flex; align-items: center; gap: 6px; }
+    .label { font-size: 12px; font-weight: bold; color: #8a8d91; text-transform: uppercase; letter-spacing: 1px; }
+    
+    button { padding: 9px 18px; font-size: 13px; cursor: pointer; border: 1px solid #111; background: linear-gradient(#3a3d40, #222426); color: #e4e6eb; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3); font-family: 'Georgia', serif; }
+    button:hover:not(:disabled) { background: linear-gradient(#4a4d52, #2d3033); color: #fff; }
+    button:disabled { opacity: 0.3; cursor: not-allowed; }
+    #pass-btn { background: linear-gradient(#c0392b, #962d22); display: none; border-color: #7d251c; }
+    #dice-display { font-size: 20px; font-weight: bold; letter-spacing: 8px; color: #ffcc00; min-width: 50px; text-align: center; text-shadow: 0 0 6px rgba(255,204,0,0.4); }
+    .mode-btn { background: #1a1b1c; border: 1px solid #3a3d40; color: #a8aaad; }
+    .mode-btn.active { background: linear-gradient(#27ae60, #1e8449); color: white; border-color: #196f3d; text-shadow: 0 1px 1px rgba(0,0,0,0.3); }
+    
+    .modal-layer { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.85); display: none; align-items: center; justify-content: center; z-index: 10000; padding: 20px; box-sizing: border-box; }
+    .modal-box { background: #2c3e50; border: 3px solid #dfb26c; border-radius: 10px; max-width: 480px; width: 100%; padding: 25px; color: #fff; text-align: center; box-shadow: 0 10px 30px rgba(0,0,0,0.6); }
+    .modal-box h2 { font-size: 22px; color: #dfb26c; margin-top: 0; margin-bottom: 15px; letter-spacing: 1px; }
+    .modal-box p { font-size: 16px; line-height: 1.5; margin-bottom: 22px; color: #e4e6eb; }
+    .modal-box button { width: 100%; background: linear-gradient(#27ae60, #1e8449); border: none; padding: 12px 0; font-size: 16px; border-radius: 5px; color: white; cursor: pointer; font-weight: bold; }
+</style>
+<script>
+    let board = [2,0,0,0,0,-5,0,-3,0,0,0,5,-5,0,0,0,3,0,5,0,0,0,0,-2];
+    let barP1 = 0, barP2 = 0, offP1 = 0, offP2 = 0;
+    let currentPlayer = 1, remainingRolls = [], selectedPoint = null, validMoves = [], isComputerMoving = false;
+    let passTimer = null, scaleMultiplier = 1.0, activeDifficulty = "advanced";
+
+    let stats = JSON.parse(localStorage.getItem('backgammon_stats')) || { pWins: 0, cWins: 0, pCheckers: 0, cCheckers: 0 };
+    let scoreLogged = false;
+
+	function changeBoardLeather(themeName) {
+		const boardEl = document.getElementById('board');
+		boardEl.classList.remove('theme-crimson', 'theme-navy', 'theme-green');
+		if (themeName !== 'wood') {
+			boardEl.classList.add('theme-' + themeName);
+		}
+	}
+    function setDifficulty(tier) {
+        activeDifficulty = tier;
+        document.getElementById("ai-easy").classList.remove("active");
+        document.getElementById("ai-adv").classList.remove("active");
+        document.getElementById("ai-exp").classList.remove("active");
+        document.getElementById(tier === "easy" ? "ai-easy" : (tier === "advanced" ? "ai-adv" : "ai-exp")).classList.add("active");
+    }
+
+    function adjustScaling(amt) {
+        scaleMultiplier = Math.min(Math.max(scaleMultiplier + amt, 0.5), 1.2);
+        document.documentElement.style.setProperty('--scale', scaleMultiplier);
+        renderBoard();
+    }
+
+    function renderBoard() {
+        document.querySelectorAll('.point').forEach(p => p.innerHTML = '');
+        document.getElementById('bar-p1').innerHTML = ''; document.getElementById('bar-p2').innerHTML = '';
+        document.getElementById('off-p1').innerHTML = ''; document.getElementById('off-p2').innerHTML = '';
+        for (let i = 0; i < barP1; i++) { let c = document.createElement('div'); c.className = 'checker c1'; document.getElementById('bar-p1').appendChild(c); }
+        for (let i = 0; i < barP2; i++) { let c = document.createElement('div'); c.className = 'checker c2'; document.getElementById('bar-p2').appendChild(c); }
+        for (let i = 0; i < offP1; i++) { let c = document.createElement('div'); c.className = 'checker c1'; document.getElementById('off-p1').appendChild(c); }
+        for (let i = 0; i < offP2; i++) { let c = document.createElement('div'); c.className = 'checker c2'; document.getElementById('off-p2').appendChild(c); }
+        for (let idx = 0; idx < 24; idx++) {
+            let val = board[idx]; if (val === 0) continue;
+            const pointEl = document.querySelector(`.point[data-idx="${idx}"]`); if (!pointEl) continue;
+            const isTop = pointEl.classList.contains('point-top'), isP1 = val > 0, count = Math.abs(val);
+            let baseSpacing = 24 * scaleMultiplier;
+            if (count > 5) { baseSpacing = Math.floor((130 * scaleMultiplier) / count); }
+            for (let i = 0; i < count; i++) {
+                const checker = document.createElement('div'); checker.className = `checker ${isP1 ? 'c1' : 'c2'}`;
+                const offset = i * baseSpacing;
+                if (isTop) { checker.style.top = `${offset + 5}px`; } else { checker.style.bottom = `${offset + 5}px`; }
+                pointEl.appendChild(checker);
+            }
+        }
+    }
+
+    function userRollDice() { if (currentPlayer === 1 && remainingRolls.length === 0) rollDice(); }
+    function rollDice() {
+        let d1 = Math.floor(Math.random() * 6) + 1, d2 = Math.floor(Math.random() * 6) + 1;
+        remainingRolls = (d1 === d2) ? [d1, d1, d1, d1] : [d1, d2];
+        document.getElementById('dice-display').innerText = d1 + " " + d2;
+        document.getElementById('roll-btn').disabled = true;
+        startPassTimer(); 
+        updateTurnText(); 
+        checkValidTurns();
+    }
+    function startPassTimer() { cancelPassTimer(); if (currentPlayer === 1) { passTimer = setTimeout(() => { document.getElementById('pass-btn').style.display = 'block'; }, 30000); } }
+    function cancelPassTimer() { if (passTimer) { clearTimeout(passTimer); passTimer = null; } document.getElementById('pass-btn').style.display = 'none'; }
+    function manualPassTurn() { if (currentPlayer !== 1) return; remainingRolls = []; clearHighlights(); selectedPoint = null; switchTurn(); }
+    function clearHighlights() { document.querySelectorAll('.point').forEach(p => p.classList.remove('highlighted')); document.querySelectorAll('.bear-zone-container').forEach(t => t.classList.remove('highlighted')); }
+    
+    function logFinalMatchStats(winnerCode) {
+        if (scoreLogged) return; scoreLogged = true;
+        if (winnerCode === 1) stats.pWins++; else stats.cWins++;
+        stats.pCheckers += offP1; stats.cCheckers += offP2;
+        localStorage.setItem('backgammon_stats', JSON.stringify(stats));
+    }
+
+    function updateTurnText() {
+        const info = document.getElementById('info-text');
+        if (offP1 === 15) {
+            logFinalMatchStats(1);
+            document.getElementById('modal-score-line').innerText = `Wins: You ${stats.pWins} - Comp ${stats.cWins} | Borne Off Total: You ${stats.pCheckers} - Comp ${stats.cCheckers}`;
+            document.getElementById('modal-win-text').innerText = "🏆 CONGRATULATIONS, YOU WIN!";
+            document.getElementById('win-modal').style.display = 'flex';
+            return;
+        }
+        if (offP2 === 15) {
+            logFinalMatchStats(2);
+            document.getElementById('modal-score-line').innerText = `Wins: You ${stats.pWins} - Comp ${stats.cWins} | Borne Off Total: You ${stats.pCheckers} - Comp ${stats.cCheckers}`;
+            document.getElementById('modal-win-text').innerText = "💻 GAME OVER, THE COMPUTER WINS!";
+            document.getElementById('win-modal').style.display = 'flex';
+            return;
+        }
+        info.innerText = currentPlayer === 1 ? `Your turn (Mother of Pearl). Rolls left: ${remainingRolls.join(', ')}` : `Computer's turn (Black). Thinking...`;
+    }
+
+    function resetGameMatch() {
+        board = [2,0,0,0,0,-5,0,-3,0,0,0,5,-5,0,0,0,3,0,5,0,0,0,0,-2];
+        barP1 = 0; barP2 = 0; offP1 = 0; offP2 = 0;
+        currentPlayer = 1; remainingRolls = []; selectedPoint = null; validMoves = []; isComputerMoving = false;
+        scoreLogged = false;
+        document.getElementById('win-modal').style.display = 'none';
+        document.getElementById('roll-btn').disabled = false;
+        document.getElementById('dice-display').innerText = '- -';
+        cancelPassTimer(); updateTurnText(); renderBoard();
+    }
+    
+    function canPlayerBearOff(p) {
+        if (p === 1) {
+            if (barP1 > 0) return false;
+            let count = 0; for (let i = 18; i <= 23; i++) { if (board[i] > 0) count += board[i]; }
+            return (count + offP1) === 15;
+        } else {
+            if (barP2 > 0) return false;
+            let count = 0; for (let i = 0; i <= 5; i++) { if (board[i] < 0) count += Math.abs(board[i]); }
+            return (count + offP2) === 15;
+        }
+    }
+</script>
+<script>
+    function checkValidTurns() {
+        let hasMoves = false, directlyOnBar = (currentPlayer === 1 && barP1 > 0) || (currentPlayer === 2 && barP2 > 0);
+        if (directlyOnBar) {
+            for (let roll of remainingRolls) { if (isValidMove(-1, calculateTarget(-1, roll), roll)) { hasMoves = true; break; } }
+        } else {
+            for (let i = 0; i < 24; i++) {
+                if ((currentPlayer === 1 && board[i] > 0) || (currentPlayer === 2 && board[i] < 0)) {
+                    for (let roll of remainingRolls) { if (isValidMove(i, calculateTarget(i, roll), roll)) { hasMoves = true; break; } }
+                }
+                if (hasMoves) break;
+            }
+        }
+        if (!hasMoves && remainingRolls.length > 0) { updateTurnText(); setTimeout(switchTurn, 1500); }
+        else { updateTurnText(); if (currentPlayer === 2 && !isComputerMoving) { isComputerMoving = true; setTimeout(executeComputerTurn, 1000); } }
+    }
+
+    function calculateTarget(start, roll) { if (start === -1) return currentPlayer === 1 ? roll - 1 : 24 - roll; return currentPlayer === 1 ? start + roll : start - roll; }
+    
+    function isValidMove(start, target, roll) {
+        if (currentPlayer === 1) {
+            if (target > 23) {
+                if (!canPlayerBearOff(1)) return false;
+                if (target === start + roll) return true;
+                if (start + roll > 23) { for (let i = 18; i < start; i++) { if (board[i] > 0) return false; } return true; }
+                return false;
+            }
+            return target >= 0 && board[target] >= -1;
+        } else {
+            if (target < 0) {
+                if (!canPlayerBearOff(2)) return false;
+                if (target === start - roll) return true;
+                if (start - roll < 0) { for (let i = 5; i > start; i--) { if (board[i] < 0) return false; } return true; }
+                return false;
+            }
+            return target <= 23 && board[target] <= 1;
+        }
+    }
+
+    document.querySelectorAll('.point').forEach(p => {
+        p.addEventListener('click', function() {
+            if (currentPlayer !== 1 || remainingRolls.length === 0 || isComputerMoving || offP1 === 15 || offP2 === 15) return;
+            const idx = parseInt(this.getAttribute('data-idx'));
+            if (selectedPoint !== null) {
+                if (validMoves.includes(idx)) { 
+                    let distance = (selectedPoint === -1) ? (idx + 1) : Math.abs(selectedPoint - idx);
+                    let diceToConsume = [];
+                    
+                    let isDoubles = remainingRolls.every(r => r === remainingRolls.at(0));
+                    if (isDoubles) {
+                        let count = Math.round(distance / remainingRolls.at(0));
+                        for (let i = 0; i < count; i++) diceToConsume.push(remainingRolls.at(0));
+                    } else {
+                        if (remainingRolls.includes(distance)) {
+                            diceToConsume.push(distance);
+                        } else {
+                            let r1 = remainingRolls.at(0), r2 = remainingRolls.at(1);
+                            if (r1 && r2 && distance === r1 + r2) diceToConsume.push(r1, r2);
+                        }
+                    }
+                    if (diceToConsume.length === 0) {
+                        let fallback = remainingRolls.find(r => isValidMove(selectedPoint, calculateTarget(selectedPoint, r), r));
+                        diceToConsume.push(fallback);
+                    }
+                    
+                    executeMove(selectedPoint, idx, diceToConsume); clearHighlights(); selectedPoint = null; 
+                }
+                else { clearHighlights(); selectedPoint = null; trySelectPoint(idx); }
+            } else { trySelectPoint(idx); }
+        });
+    });
+
+    document.getElementById('tray-box-p1').addEventListener('click', function() {
+        if (currentPlayer === 1 && selectedPoint !== null && validMoves.some(m => m > 23)) {
+            let distanceNeeded = 24 - selectedPoint;
+            let exactRoll = remainingRolls.find(r => r === distanceNeeded);
+            
+            // FIXED SAFE FALLBACK: Forces the absolute largest available die value subtraction
+            let rollUsed = exactRoll || Math.max(...remainingRolls);
+            
+            executeMove(selectedPoint, 99, [rollUsed]); clearHighlights(); selectedPoint = null;
+        }
+    });
+
+    function trySelectPoint(idx) {
+        if (currentPlayer !== 1 || isComputerMoving || offP1 === 15 || offP2 === 15) return;
+        if (barP1 > 0) {
+            selectedPoint = -1; validMoves = [];
+            remainingRolls.forEach(r => { let t = calculateTarget(-1, r); if (isValidMove(-1, t, r)) { validMoves.push(t); document.querySelector(`.point[data-idx="${t}"]`).classList.add('highlighted'); } });
+            return;
+        }
+        if (board[idx] > 0) {
+            selectedPoint = idx; validMoves = [];
+            remainingRolls.forEach(r => {
+                let t = calculateTarget(idx, r);
+                if (isValidMove(idx, t, r)) { validMoves.push(t); if (t > 23) document.getElementById('tray-box-p1').classList.add('highlighted'); else document.querySelector(`.point[data-idx="${t}"]`).classList.add('highlighted'); }
+            });
+            if (remainingRolls.length >= 2) {
+                let r1 = remainingRolls.at(0), r2 = remainingRolls.at(1);
+                let hop1 = calculateTarget(idx, r1), comboTarget = calculateTarget(idx, r1 + r2);
+                if (isValidMove(idx, hop1, r1) && isValidMove(hop1, comboTarget, r2)) {
+                    if (!validMoves.includes(comboTarget)) { validMoves.push(comboTarget); if (comboTarget > 23) document.getElementById('tray-box-p1').classList.add('highlighted'); else document.querySelector(`.point[data-idx="${comboTarget}"]`).classList.add('highlighted'); }
+                }
+                let hop2 = calculateTarget(idx, r2);
+                if (isValidMove(idx, hop2, r2) && isValidMove(hop2, comboTarget, r1)) {
+                    if (!validMoves.includes(comboTarget)) { validMoves.push(comboTarget); if (comboTarget > 23) document.getElementById('tray-box-p1').classList.add('highlighted'); else document.querySelector(`.point[data-idx="${comboTarget}"]`).classList.add('highlighted'); }
+                }
+            }
+            if (validMoves.length > 0) document.querySelector(`.point[data-idx="${idx}"]`).classList.add('highlighted'); else selectedPoint = null;
+        }
+    }
+
+    function executeMove(from, to, diceToRemoveArray) {
+        for (let die of diceToRemoveArray) { const rIdx = remainingRolls.indexOf(die); if (rIdx !== -1) remainingRolls.splice(rIdx, 1); }
+        if (currentPlayer === 1) {
+            if (from === -1) barP1--; else board[from] -= 1;
+            if (to > 23 || to === 99) { offP1++; } else if (board[to] === -1) { board[to] = 1; barP2++; } else { board[to] += 1; }
+            startPassTimer();
+        } else {
+            if (from === -1) barP2--; else board[from] += 1;
+            if (to < 0) { offP2++; } else if (board[to] === 1) { board[to] = -1; barP1++; } else { board[to] -= 1; }
+        }
+        renderBoard();
+        if (offP1 === 15 || offP2 === 15) { document.getElementById('roll-btn').disabled = true; updateTurnText(); return; }
+        if (remainingRolls.length === 0) switchTurn(); else checkValidTurns();
+    }
+
+    function switchTurn() {
+        currentPlayer = currentPlayer === 1 ? 2 : 1; remainingRolls = []; clearHighlights(); cancelPassTimer();
+        if (currentPlayer === 1) { document.getElementById('roll-btn').disabled = false; document.getElementById('dice-display').innerText = '- -'; updateTurnText(); }
+        else { document.getElementById('roll-btn').disabled = true; updateTurnText(); setTimeout(rollDice, 1200); }
+    }
+    
+    function executeComputerTurn() {
+        if (remainingRolls.length === 0 || offP2 === 15) { isComputerMoving = false; return; }
+        let moves = [];
+        if (barP2 > 0) { for (let r of remainingRolls) { let t = calculateTarget(-1, r); if (isValidMove(-1, t, r)) moves.push({ from: -1, to: t, r: r }); } }
+        else { for (let i = 0; i < 24; i++) { if (board[i] < 0) { for (let r of remainingRolls) { let t = calculateTarget(i, r); if (isValidMove(i, t, r)) moves.push({ from: i, to: t, r: r }); } } } }
+        if (moves.length > 0) {
+            let choice = null;
+            if (activeDifficulty === "easy") { choice = moves[Math.floor(Math.random() * moves.length)]; } 
+            else if (activeDifficulty === "advanced") {
+                let bestScore = -999;
+                for (let m of moves) {
+                    let score = 0; if (m.to < 0) score += 50; if (m.to >= 0 && board[m.to] === -1) score += 10; if (m.to >= 0 && board[m.to] === 1) score += 5;
+                    if (score >= bestScore) { bestScore = score; choice = m; }
+                }
+                if (!choice) choice = moves;
+            } else {
+                let bestScore = -999;
+                for (let m of moves) {
+                    let score = 0; if (m.to < 0) score += 100; if (m.to >= 0 && board[m.to] === 1) score += 60; if (m.to >= 0 && board[m.to] === -1) score += 25; if (m.to >= 0 && m.to <= 5) score += 15;
+                    if (score >= bestScore) { bestScore = score; choice = m; }
+                }
+                if (!choice) choice = moves;
+            }
+            setTimeout(() => { executeMove(choice.from, choice.to, [choice.r]); executeComputerTurn(); }, 1000);
+        } else { isComputerMoving = false; switchTurn(); }
+    }
+    renderBoard();
+</script>
+</body>
+</html>

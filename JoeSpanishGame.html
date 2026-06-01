@@ -1,0 +1,554 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Busca Palabras - Audio Pronounce Edition</title>
+</head>
+<body>
+
+    <header>
+        <h1>Busca Palabras</h1>
+        <div id="level-indicator">Loading...</div>
+        
+        <div id="setup-panel" style="margin-top:10px; display:flex; gap:10px; justify-content:center; align-items:center;">
+            <label for="letter-select" style="font-weight:bold; font-size:0.9rem;">Letters:</label>
+            <select id="letter-select" onchange="generateProceduralLevel()" style="padding: 6px 10px; border-radius: 6px;">
+                <option value="auto">Auto (+1)</option>
+                <option value="3">3 Letters</option>
+                <option value="4">4 Letters</option>
+                <option value="5">5 Letters</option>
+                <option value="6">6 Letters</option>
+                <option value="7">7 Letters</option>
+                <option value="8">8 Letters</option>
+                <option value="9">9 Letters</option>
+                <option value="10">10 Letters</option>
+            </select>
+            
+            <button id="hint-btn" onclick="useHint()" style="padding: 6px 12px; border-radius: 6px; background:#F1C40F; border:none; font-weight:bold; cursor:pointer; box-shadow:0 2px 5px rgba(0,0,0,0.15);">💡 Hint</button>
+        </div>
+    </header>
+
+    <div id="game-container">
+        <div id="words-container"></div>
+        <div id="preview-box"></div>
+
+        <div id="wheel-container">
+            <div id="wheel-bg"></div>
+            <svg id="svg-canvas">
+                <path id="line-path" d=""></path>
+            </svg>
+            <div id="letters-wrapper"></div>
+        </div>
+
+        <button id="next-level-btn" onclick="nextLevel()">¡Siguiente Nivel!</button>
+    </div>
+    <style>
+        :root {
+            --primary: #2C3E50;
+            --accent: #E74C3C;
+            --success: #2ECC71;
+            --glow: #F1C40F;
+            --background: #F8F9FA;
+        }
+
+        body {
+            font-family: 'Segoe UI', system-ui, sans-serif;
+            background-color: var(--background);
+            color: var(--primary);
+            margin: 0;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+            user-select: none;
+            -webkit-user-select: none;
+        }
+
+        header { text-align: center; margin-top: 15px; }
+        h1 { margin: 5px 0; }
+
+        #level-indicator {
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: var(--accent);
+            margin-top: 4px;
+            letter-spacing: 1px;
+        }
+
+        #game-container {
+            width: 100%;
+            max-width: 480px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 15px;
+            box-sizing: border-box;
+        }
+
+        #words-container {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+            margin-bottom: 20px;
+            width: 100%;
+            align-items: center;
+        }
+
+        .word-row {
+            display: flex;
+            gap: 4px;
+            cursor: pointer;
+            position: relative;
+            padding: 4px;
+            border-radius: 6px;
+            transition: background-color 0.2s;
+            flex-wrap: wrap;
+            justify-content: center;
+        }
+
+        .word-row.solved:hover { background-color: rgba(46, 204, 113, 0.1); }
+
+        .letter-box {
+            width: 32px;
+            height: 32px;
+            border: 2px solid #BDC3C7;
+            border-radius: 6px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            font-weight: 800;
+            background-color: #FFFFFF;
+            color: transparent;
+            transition: all 0.2s ease;
+        }
+
+        .letter-box.revealed {
+            color: var(--primary);
+            border-color: var(--glow);
+            background-color: #FFFDE7;
+        }
+
+        .word-row.solved .letter-box {
+            border-color: var(--success);
+            color: #FFFFFF;
+            background-color: var(--success);
+            box-shadow: 0 3px 5px rgba(46, 204, 113, 0.15);
+        }
+
+        #preview-box {
+            height: 35px;
+            font-size: 1.6rem;
+            font-weight: 800;
+            color: var(--accent);
+            margin-bottom: 20px;
+            letter-spacing: 3px;
+            text-transform: uppercase;
+        }
+
+        #wheel-container {
+            position: relative;
+            width: 250px;
+            height: 250px;
+            margin-bottom: 20px;
+            touch-action: none;
+        }
+
+        #wheel-bg {
+            position: absolute;
+            width: 100%;
+            height: 100%;
+            border-radius: 50%;
+            background-color: #FFFFFF;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.08);
+            border: 3px solid #E2E8F0;
+        }
+
+        .wheel-letter {
+            position: absolute;
+            border-radius: 50%;
+            background-color: var(--primary);
+            color: #FFFFFF;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            cursor: pointer;
+            transform: translate(-50%, -50%);
+            transition: transform 0.1s, background-color 0.2s;
+            box-shadow: 0 5px 8px rgba(0,0,0,0.15);
+            touch-action: none;
+            z-index: 5;
+        }
+
+        .wheel-letter.selected {
+            background-color: var(--glow);
+            color: var(--primary);
+            transform: translate(-50%, -50%) scale(1.15);
+        }
+
+        #svg-canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 2;
+        }
+
+        #line-path {
+            fill: none;
+            stroke: var(--glow);
+            stroke-width: 6;
+            stroke-linecap: round;
+            stroke-linejoin: round;
+            opacity: 0.85;
+        }
+
+        #next-level-btn {
+            display: none;
+            padding: 12px 32px;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #FFFFFF;
+            background-color: var(--accent);
+            border: none;
+            border-radius: 30px;
+            cursor: pointer;
+            box-shadow: 0 5px 15px rgba(231, 76, 60, 0.3);
+        }
+    </style>
+    <script>
+        let gameLevel = 1;
+        let selectedLetters = [];
+        let isConnecting = false;
+        let solvedCount = 0;
+        let currentLevelWords = [];
+        let currentLevelLetters = [];
+
+        const wordsContainer = document.getElementById('words-container');
+        const previewBox = document.getElementById('preview-box');
+        const lettersWrapper = document.getElementById('letters-wrapper');
+        const linePath = document.getElementById('line-path');
+        const wheelContainer = document.getElementById('wheel-container');
+        const levelIndicator = document.getElementById('level-indicator');
+        const nextLevelBtn = document.getElementById('next-level-btn');
+        const letterSelect = document.getElementById('letter-select');
+
+        // NATIVE SPEECH ENGINE: Forces device vocal synthesis to speak fluid Spanish
+        function speakSpanishWord(textToPronounce) {
+            if ('speechSynthesis' in window) {
+                // Instantly halts any ongoing pronunciations to prevent overlap backlogs
+                window.speechSynthesis.cancel();
+                
+                const utterance = new SpeechSynthesisUtterance(textToPronounce);
+                utterance.lang = 'es-ES'; // Directs native European/LatAm vocal localization
+                utterance.rate = 0.85;    // Comfortably paced learning articulation speed
+                
+                window.speechSynthesis.speak(utterance);
+            }
+        }
+
+        function getTargetWordLength(level) {
+            const chosenVal = letterSelect.value;
+            if (chosenVal !== "auto") return parseInt(chosenVal, 10);
+            if (level <= 2) return 3;
+            if (level <= 4) return 4;
+            if (level <= 6) return 5;
+            return Math.min(10, 3 + Math.floor((level - 1) / 2));
+        }
+
+        function canFormWord(targetWord, availableLetters) {
+            const lettersCopy = [...availableLetters];
+            for (let char of targetWord) {
+                const index = lettersCopy.indexOf(char);
+                if (index === -1) return false;
+                lettersCopy.splice(index, 1);
+            }
+            return true;
+        }
+        const rawMegaData = {
+            3: "SOL:Sun|LOS:The (pl)|MAR:Sea|PAN:Bread|SAL:Salt|" +
+               "VER:To see|OIR:To hear|RIO:River|SUR:South|LUZ:Light|" +
+               "DOS:Two|CON:With|MAS:More|POR:By/For|UNA:One (f)|" +
+               "UNO:One (m)|DIA:Day|HOY:Today|LEY:Law|PAZ:Peace|" +
+               "VOZ:Voice|MAL:Bad|MIL:Thousand|MES:Month|ANO:Year|" +
+               "PIE:Foot|GOL:Goal|OJO:Eye|TIO:Uncle|TIA:Aunt|" +
+               "REY:King|OSO:Bear|VIA:Way/Route|BIO:Bio|FIN:End",
+            4: "AMOR:Love|ROMA:Rome|RAMO:Bouquet|MORA:Blackberry|" +
+               "CASA:House|VIDA:Life|GATO:Cat|AZUL:Blue|ROJO:Red|" +
+               "LUNA:Moon|PUMA:Puma|HOLA:Hello|MAPA:Map|ROPA:Clothes|" +
+               "MESA:Table|COPA:Cup|BOCA:Mouth|MANO:Hand|PELO:Hair|" +
+               "COLA:Tail|SAPO:Toad|NINO:Child|LOCO:Crazy|PISO:Floor|" +
+               "PASO:Step|RICO:Rich|ALMA:Soul|ARTE:Art|BAJO:Low|" +
+               "CAMA:Bed|CARO:Expensive|HORA:Hour|ISLA:Island|" +
+               "JEFE:Boss|LAGO:Lake|LEON:Lion|LOBO:Wolf|NUBE:Cloud|" +
+               "PESO:Weight|RANA:Frog|ROSA:Rose|VINO:Wine|PAPA:Pope",
+            5: "COSTA:Coast|TACOS:Tacos|ACTOS:Acts|PLAYA:Beach|" +
+               "LIBRO:Book|VERDE:Green|MUNDO:World|FUEGO:Fire|" +
+               "ARBOL:Tree|PIANO:Piano|FRUTA:Fruit|PERRO:Dog|" +
+               "AGUA:Water|SUENO:Dream|NUEVO:New|CHICO:Boy|" +
+               "LLAVE:Key|CARTA:Letter|PLATA:Silver|FORMA:Shape|" +
+               "GRUPO:Group|VALOR:Value|NORTE:North|CAMPO:Field|" +
+               "BARCO:Boat|CALLE:Street|CLASE:Class|FLOR:Flower|" +
+               "GENTE:People|HIELO:Ice|JOVEN:Young|METRO:Metro|" +
+               "PADRE:Father|QUESO:Cheese|RADIO:Radio|TIGRE:Tiger",
+            6: "CIUDAD:City|PAJARO:Bird|TIEMPO:Time|CAMINO:Path|" +
+               "FIESTA:Party|PUERTA:Door|ZAPATO:Shoe|SANGRE:Blood|" +
+               "PUEBLO:Town|MADRE:Mother|PADRE:Father|AMIGO:Friend|" +
+               "CUERPO:Body|TIERRA:Earth|HOMBRE:Man|MUJER:Woman|" +
+               "ANIMAL:Animal|COMIDA:Food|VERANO:Summer|MUSICA:Music|" +
+               "ABUELO:Grandfather|CABEZA:Head|DINERO:Money|" +
+               "ESPEJO:Mirror|HUEVO:Egg|JARDIN:Garden|MEDICO:Doctor|" +
+               "NUMERO:Number|REGALO:Gift|TEATRO:Theater|VIENTO:Wind",
+            7: "MANANA:Morning|GUITARRA:Guitar|TRABAJO:Work|" +
+               "VENTANA:Window|COLEGIO:School|HERMANO:Brother|" +
+               "CARRERA:Career|HISTORIA:History|CULTURA:Culture|" +
+               "DOMINGO:Sunday|PLANETA:Planet|ESTRELLA:Star|" +
+               "EDIFICIO:Building|MENSAJE:Message|SISTEMA:System|" +
+               "MERCADO:Market|PELICULA:Movie|CORAZON:Heart|" +
+               "ABUELA:Grandmother|BOTELLA:Bottle|CABALLO:Horse|" +
+               "COCINA:Kitchen|EJEMPLO:Example|MALETA:Suitcase",
+            8: "TELEFONO:Telephone|MEDICINA:Medicine|PROVINCIA:Province|" +
+               "ALMUERZO:Lunch|PREGUNTA:Question|PROYECTO:Project|" +
+               "SITUACION:Situation|DESAYUNO:Breakfast|PROBLEMA:Problem|" +
+               "PERSONA:Person|GIMNASIO:Gym|COMPANERO:Classmate|" +
+               "SERVICIO:Service|CONEXION:Connection|DEPORTE:Sport|" +
+               "ACCIDENTE:Accident|BICICLETA:Bicycle|ELEFANTE:Elephant|" +
+               "FARMACIA:Pharmacy|INGENIERO:Engineer|PASAPORTE:Passport",
+            9: "ESTUDIANTE:Student|UNIVERSIDAD:University|" +
+               "GEOGRAFIA:Geography|VACACIONES:Vacation|" +
+               "DICCIONARIO:Dictionary|NATURALEZA:Nature|" +
+               "EDUCACION:Education|TRANSPORTE:Transport|" +
+               "POBLACION:Population|ACTIVIDAD:Activity|" +
+               "FOTOGRAFIA:Photography|TECNOLOGIA:Technology|" +
+               "CHOCOLATE:Chocolate|DIRECCION:Direction|" +
+               "HABITACION:Room|PRESIDENTE:President|ZANAHORIA:Carrot",
+            10: "COMPUTADORA:Computer|HABITACION:Room|" +
+                "ANIVERSARIO:Anniversary|INGREDIENTE:Ingredient|" +
+                "EXPERIENCIA:Experience|REVOLUCION:Revolution|" +
+                "LITERATURA:Literature|NACIONALIDAD:Nationality|" +
+                "PRODUCCION:Production|TELESCOPIO:Telescope|" +
+                "ESTRUCTURA:Structure|CONVERSAR:To chat|" +
+                "AUTOMOVIL:Automobile|BIBLIOTECA:Library"
+        };
+
+        const masterOnlineDictionary = {};
+        Object.keys(rawMegaData).forEach(len => {
+            masterOnlineDictionary[len] = rawMegaData[len].split('|').map(item => {
+                const parts = item.split(':');
+                return { word: parts[0], translation: parts[1] };
+            });
+        });
+        function generateProceduralLevel() {
+            const wordLength = getTargetWordLength(gameLevel);
+            const pool = masterOnlineDictionary[wordLength];
+            
+            const rootObj = pool[Math.floor(Math.random() * pool.length)];
+            const rootWord = rootObj.word;
+            const rootLetters = rootWord.split('');
+
+            let matchingAnagrams = pool.filter(wObj => canFormWord(wObj.word, rootLetters));
+            matchingAnagrams = [...new Set(matchingAnagrams)];
+
+            if (matchingAnagrams.length > 3) {
+                matchingAnagrams = matchingAnagrams.sort(() => Math.random() - 0.5).slice(0, 3);
+            }
+            
+            if (!matchingAnagrams.some(item => item.word === rootWord)) {
+                matchingAnagrams.unshift(rootObj);
+            }
+
+            currentLevelWords = matchingAnagrams;
+            currentLevelLetters = rootWord.split('').sort(() => Math.random() - 0.5);
+            
+            renderInterface(wordLength);
+        }
+
+        function renderInterface(wordLength) {
+            levelIndicator.textContent = `Nivel ${gameLevel} (${wordLength} Letras)`;
+            wordsContainer.innerHTML = '';
+            lettersWrapper.innerHTML = '';
+            previewBox.textContent = '';
+            linePath.setAttribute('d', '');
+            nextLevelBtn.style.display = 'none';
+            solvedCount = 0;
+            selectedLetters = [];
+
+            currentLevelWords.forEach((wObj, index) => {
+                const row = document.createElement('div');
+                row.className = 'word-row';
+                row.dataset.word = wObj.word;
+                row.dataset.translation = wObj.translation;
+                row.id = `word-${index}`;
+
+                for (let i = 0; i < wObj.word.length; i++) {
+                    const box = document.createElement('div');
+                    box.className = 'letter-box';
+                    row.appendChild(box);
+                }
+
+                // AUDIO HOOK 1: Speaks aloud when an opened row is manually tapped
+                row.addEventListener('click', () => {
+                    if (row.classList.contains('solved')) {
+                        speakSpanishWord(wObj.word);
+                        alert(`"${wObj.word}" means: "${wObj.translation}"`);
+                    }
+                });
+                wordsContainer.appendChild(row);
+            });
+
+            const radius = 85; 
+            const centerX = 125;
+            const centerY = 125;
+            const totalCount = currentLevelLetters.length;
+
+            const elementSize = totalCount > 5 ? Math.max(34, 52 - (totalCount - 5) * 3.8) : 52;
+            const fontSize = totalCount > 5 ? Math.max(1.0, 1.6 - (totalCount - 5) * 0.12) : 1.6;
+
+            currentLevelLetters.forEach((letter, i) => {
+                const angle = (i * 2 * Math.PI / totalCount) - Math.PI / 2;
+                const x = centerX + radius * Math.cos(angle);
+                const y = centerY + radius * Math.sin(angle);
+
+                const el = document.createElement('div');
+                el.className = 'wheel-letter';
+                el.textContent = letter;
+                el.style.left = `${x}px`;
+                el.style.top = `${y}px`;
+                el.style.width = `${elementSize}px`;
+                el.style.height = `${elementSize}px`;
+                el.style.fontSize = `${fontSize}rem`;
+                el.dataset.letter = letter;
+
+                el.addEventListener('pointerdown', startConnect);
+                lettersWrapper.appendChild(el);
+            });
+        }
+        function startConnect(e) {
+            e.preventDefault();
+            isConnecting = true;
+            e.target.releasePointerCapture(e.pointerId);
+
+            const el = e.target.closest('.wheel-letter');
+            if (el) selectLetter(el);
+
+            window.addEventListener('pointermove', handleMove);
+            window.addEventListener('pointerup', endConnect);
+            window.addEventListener('pointercancel', endConnect);
+        }
+
+        function handleMove(e) {
+            if (!isConnecting) return;
+            e.preventDefault();
+            
+            const el = document.elementFromPoint(e.clientX, e.clientY);
+            const letterEl = el ? el.closest('.wheel-letter') : null;
+
+            if (letterEl && !selectedLetters.includes(letterEl)) {
+                selectLetter(letterEl);
+            }
+            updateLines(e.clientX, e.clientY);
+        }
+
+        function selectLetter(el) {
+            selectedLetters.push(el);
+            el.classList.add('selected');
+            previewBox.textContent = selectedLetters.map(item => item.dataset.letter).join('');
+        }
+
+        function updateLines(currentX, currentY) {
+            if (selectedLetters.length === 0) return;
+            const rect = wheelContainer.getBoundingClientRect();
+            let d = '';
+            selectedLetters.forEach((el, idx) => {
+                const itemRect = el.getBoundingClientRect();
+                const x = itemRect.left + itemRect.width / 2 - rect.left;
+                const y = itemRect.top + itemRect.height / 2 - rect.top;
+                if (idx === 0) d += `M ${x} ${y}`;
+                else d += ` L ${x} ${y}`;
+            });
+            if (currentX !== undefined && currentY !== undefined) {
+                d += ` L ${currentX - rect.left} ${currentY - rect.top}`;
+            }
+            linePath.setAttribute('d', d);
+        }
+
+        function endConnect() {
+            if (!isConnecting) return;
+            isConnecting = false;
+
+            window.removeEventListener('pointermove', handleMove);
+            window.removeEventListener('pointerup', endConnect);
+            window.removeEventListener('pointercancel', endConnect);
+
+            const finalWord = selectedLetters.map(el => el.dataset.letter).join('');
+            checkWord(finalWord);
+            
+            document.querySelectorAll('.wheel-letter').forEach(el => el.classList.remove('selected'));
+            selectedLetters = [];
+            previewBox.textContent = '';
+            linePath.setAttribute('d', '');
+        }
+
+        function checkWord(submittedWord) {
+            const matchingRows = document.querySelectorAll(`.word-row[data-word="${submittedWord}"]`);
+            matchingRows.forEach(row => {
+                if (!row.classList.contains('solved')) {
+                    row.classList.add('solved');
+                    
+                    // AUDIO HOOK 2: Automatically pronounces word upon a valid drag solution match
+                    speakSpanishWord(submittedWord);
+                    
+                    const boxes = row.querySelectorAll('.letter-box');
+                    for (let i = 0; i < submittedWord.length; i++) {
+                        boxes[i].textContent = submittedWord[i];
+                        boxes[i].className = 'letter-box'; 
+                    }
+                    solvedCount++;
+                    if (solvedCount === currentLevelWords.length) nextLevelBtn.style.display = 'block';
+                }
+            });
+        }
+
+        function useHint() {
+            const unsolvedRows = Array.from(document.querySelectorAll('.word-row:not(.solved)'));
+            if (unsolvedRows.length === 0) return;
+            
+            const randomRow = unsolvedRows[Math.floor(Math.random() * unsolvedRows.length)];
+            const boxes = randomRow.querySelectorAll('.letter-box');
+            const targetWord = randomRow.dataset.word;
+            let emptyIndexes = [];
+            
+            boxes.forEach((box, idx) => {
+                if (!box.textContent) emptyIndexes.push(idx);
+            });
+
+            if (emptyIndexes.length > 0) {
+                const targetIdx = emptyIndexes[Math.floor(Math.random() * emptyIndexes.length)];
+                boxes[targetIdx].textContent = targetWord[targetIdx];
+                boxes[targetIdx].classList.add('revealed');
+                
+                let complete = true;
+                boxes.forEach(b => { if(!b.textContent) complete = false; });
+                if (complete) {
+                    randomRow.classList.add('solved');
+                    speakSpanishWord(targetWord); // Pronounce word if hint finishes it
+                    boxes.forEach(b => b.className = 'letter-box');
+                    solvedCount++;
+                    if (solvedCount === currentLevelWords.length) nextLevelBtn.style.display = 'block';
+                }
+            }
+        }
+
+        function nextLevel() {
+            gameLevel++;
+            generateProceduralLevel();
+        }
+
+        generateProceduralLevel();
+    </script>
+</body>
+</html>
