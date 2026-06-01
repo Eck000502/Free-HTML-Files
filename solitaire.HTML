@@ -58,7 +58,7 @@
             border-radius: 20px;
             border: 1px solid #ffd700;
         }
-        .coin-icon { color: #ffd700; }
+        .coin-icon { color: #ffd700; font-style: normal; }
         #btn-new-game {
             background: #ffd700;
             color: #1b5e20;
@@ -97,6 +97,7 @@
         
         #stock { grid-column: 1; }
         #waste { grid-column: 2; }
+        /* Dynamic Foundations: Suit locks removed from core HTML layout structure */
         #f-0 { grid-column: 4; }
         #f-1 { grid-column: 5; }
         #f-2 { grid-column: 6; }
@@ -156,7 +157,7 @@
 <body>
     <div id="status-bar">
         <div class="coin-display">
-            <span class="coin-icon">&#129689;</span>
+            <span class="coin-icon">🪙</span>
             <span id="coin-count">100</span> Coins
         </div>
         <button id="btn-new-game" onclick="triggerDirectNewGame()">New Game</button>
@@ -165,10 +166,10 @@
         <div class="row">
             <div id="stock" class="slot" onclick="handleStockClick()"></div>
             <div id="waste" class="slot"></div>
-            <div id="f-0" class="slot foundation" data-suit="H"></div>
-            <div id="f-1" class="slot foundation" data-suit="D"></div>
-            <div id="f-2" class="slot foundation" data-suit="C"></div>
-            <div id="f-3" class="slot foundation" data-suit="S"></div>
+            <div id="f-0" class="slot foundation"></div>
+            <div id="f-1" class="slot foundation"></div>
+            <div id="f-2" class="slot foundation"></div>
+            <div id="f-3" class="slot foundation"></div>
         </div>
         <div class="row">
             <div id="t-0" class="slot tableau"></div>
@@ -213,10 +214,10 @@
         }
 
         function initGame() {
-            // ENHANCED RESET MECHANIC: Explicitly removes old card layouts from memory
             const slots = document.querySelectorAll('.slot');
             for (let i = 0; i < slots.length; i++) {
                 slots[i].innerHTML = '';
+                slots[i].removeAttribute('data-suit'); // Dynamic suit lock cleared completely on fresh games
             }
             
             deck = [];
@@ -257,7 +258,6 @@
             el.innerHTML = ''; 
 
             el.addEventListener('pointerdown', startDrag);
-            el.addEventListener('click', handleCardClick);
             return el;
         }
 
@@ -334,6 +334,17 @@
             const card = e.currentTarget;
             if (card.classList.contains('back') || card.parentElement.id === 'stock') return;
             if (card.parentElement.id === 'waste' && card !== card.parentElement.lastElementChild) return;
+
+            // UNIFIED DOUBLE-CLICK/TAP ENFORCEMENT: Captures rapid tap sequences natively in the lower pointer pipeline
+            const currentTime = new Date().getTime();
+            const tapLength = currentTime - lastTap;
+            lastTap = currentTime;
+
+            if (tapLength < 300 && tapLength > 0) {
+                e.preventDefault();
+                tryAutoSnap(card);
+                return; // Suppress dragging logic entirely on rapid double triggers
+            }
 
             sourceSlot = card.parentElement;
             
@@ -413,13 +424,19 @@
             }
 
             if (dropTarget && validateMove(dragCards, dropTarget)) {
-                const toFoundation = dropTarget.classList.contains('foundation');
-                
+                const toFoundation = dropTarget.classList.contains('foundation') || dropTarget.closest('.foundation');
+                const realSlot = dropTarget.closest('.slot') || dropTarget;
+
+                // Lock dynamic suit configuration to foundation if currently empty
+                if (toFoundation && !realSlot.lastElementChild) {
+                    realSlot.setAttribute('data-suit', dragCards[0].getAttribute('data-suit'));
+                }
+
                 dragCards.forEach(c => {
                     c.classList.remove('dragging');
                     c.style.top = '';
                     c.style.left = '';
-                    dropTarget.appendChild(c);
+                    realSlot.appendChild(c);
                 });
 
                 if (toFoundation) {
@@ -444,17 +461,6 @@
             updateCardPositions();
         }
 
-        function handleCardClick(e) {
-            const card = e.currentTarget;
-            const currentTime = new Date().getTime();
-            const tapLength = currentTime - lastTap;
-            lastTap = currentTime;
-
-            if (tapLength < 300 && tapLength > 0) {
-                tryAutoSnap(card);
-            }
-        }
-
         function tryAutoSnap(card) {
             if (card.classList.contains('back')) return;
             if (card.nextElementSibling) return; 
@@ -465,6 +471,10 @@
             
             for (let i = 0; i < foundations.length; i++) {
                 if (validateMove([card], foundations[i])) {
+                    // Assign dynamic card suit property to empty slot before loading child
+                    if (!foundations[i].lastElementChild) {
+                        foundations[i].setAttribute('data-suit', card.getAttribute('data-suit'));
+                    }
                     foundations[i].appendChild(card);
                     coins += 2;
                     updateCoinDisplay();
@@ -481,20 +491,22 @@
         function validateMove(cards, targetSlot) {
             if (!cards || cards.length === 0) return false;
             
-            // FIXED EXTRACTION ENCODING METHOD: Explicitly reads index zero using legacy safe string extraction to prevent network translation stripping bugs
             const firstCard = cards[0]; 
             const weight = parseInt(firstCard.getAttribute('data-weight'));
             const suit = firstCard.getAttribute('data-suit');
             const color = SUITS[suit].color;
-            const topCard = targetSlot.lastElementChild;
 
-            if (targetSlot.classList.contains('foundation')) {
+            const actualSlot = targetSlot.closest('.slot') || targetSlot;
+            const topCard = actualSlot.lastElementChild;
+
+            if (actualSlot.classList.contains('foundation')) {
                 if (cards.length > 1) return false;
-                if (targetSlot.getAttribute('data-suit') !== suit) return false;
-                return !topCard ? weight === 1 : (topCard.getAttribute('data-suit') === suit && parseInt(topCard.getAttribute('data-weight')) === weight - 1);
+                const slotSuitLock = actualSlot.getAttribute('data-suit');
+                // Any Ace can anchor onto any unassigned foundation slot lane
+                return !topCard ? weight === 1 : (slotSuitLock === suit && parseInt(topCard.getAttribute('data-weight')) === weight - 1);
             }
 
-            if (targetSlot.classList.contains('tableau')) {
+            if (actualSlot.classList.contains('tableau')) {
                 return !topCard ? weight === 13 : (!topCard.classList.contains('back') && SUITS[topCard.getAttribute('data-suit')].color !== color && parseInt(topCard.getAttribute('data-weight')) === weight + 1);
             }
 
