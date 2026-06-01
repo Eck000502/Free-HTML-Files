@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
     <title>Classic Solitaire</title>
     <style>
         :root {
@@ -34,7 +34,8 @@
             position: relative;
             height: 100vh;
             width: 100vw;
-            touch-action: none;
+            /* Native WebKit Directive: Blocks structural double-tap page zoom actions across the board */
+            touch-action: manipulation;
         }
         #status-bar {
             height: 50px;
@@ -97,7 +98,6 @@
         
         #stock { grid-column: 1; }
         #waste { grid-column: 2; }
-        /* Dynamic Foundations: Suit locks removed from core HTML layout structure */
         #f-0 { grid-column: 4; }
         #f-1 { grid-column: 5; }
         #f-2 { grid-column: 6; }
@@ -116,7 +116,8 @@
             justify-content: space-between;
             padding: 6px 4px;
             cursor: pointer;
-            touch-action: none;
+            /* Manipulation parameter isolates micro gestures and natively shuts down iOS double-tap magnification scales */
+            touch-action: manipulation;
         }
         .card.back {
             background: linear-gradient(135deg, #1565c0 25%, transparent 25%) -50px 0,
@@ -217,7 +218,7 @@
             const slots = document.querySelectorAll('.slot');
             for (let i = 0; i < slots.length; i++) {
                 slots[i].innerHTML = '';
-                slots[i].removeAttribute('data-suit'); // Dynamic suit lock cleared completely on fresh games
+                slots[i].removeAttribute('data-suit');
             }
             
             deck = [];
@@ -335,7 +336,7 @@
             if (card.classList.contains('back') || card.parentElement.id === 'stock') return;
             if (card.parentElement.id === 'waste' && card !== card.parentElement.lastElementChild) return;
 
-            // UNIFIED DOUBLE-CLICK/TAP ENFORCEMENT: Captures rapid tap sequences natively in the lower pointer pipeline
+            // Secure Double Tap Timeline Detector
             const currentTime = new Date().getTime();
             const tapLength = currentTime - lastTap;
             lastTap = currentTime;
@@ -343,7 +344,7 @@
             if (tapLength < 300 && tapLength > 0) {
                 e.preventDefault();
                 tryAutoSnap(card);
-                return; // Suppress dragging logic entirely on rapid double triggers
+                return; 
             }
 
             sourceSlot = card.parentElement;
@@ -427,9 +428,10 @@
                 const toFoundation = dropTarget.classList.contains('foundation') || dropTarget.closest('.foundation');
                 const realSlot = dropTarget.closest('.slot') || dropTarget;
 
-                // Lock dynamic suit configuration to foundation if currently empty
                 if (toFoundation && !realSlot.lastElementChild) {
-                    realSlot.setAttribute('data-suit', dragCards[0].getAttribute('data-suit'));
+                    // Safe array element value lookup assignment properties
+                    const [movingCard] = dragCards;
+                    realSlot.setAttribute('data-suit', movingCard.getAttribute('data-suit'));
                 }
 
                 dragCards.forEach(c => {
@@ -471,7 +473,6 @@
             
             for (let i = 0; i < foundations.length; i++) {
                 if (validateMove([card], foundations[i])) {
-                    // Assign dynamic card suit property to empty slot before loading child
                     if (!foundations[i].lastElementChild) {
                         foundations[i].setAttribute('data-suit', card.getAttribute('data-suit'));
                     }
@@ -491,7 +492,8 @@
         function validateMove(cards, targetSlot) {
             if (!cards || cards.length === 0) return false;
             
-            const firstCard = cards[0]; 
+            // UNIVERSAL DESTRUCTURING REPAIR: Safely extracts index element 0 without using code block brackets
+            const [firstCard] = cards; 
             const weight = parseInt(firstCard.getAttribute('data-weight'));
             const suit = firstCard.getAttribute('data-suit');
             const color = SUITS[suit].color;
@@ -502,7 +504,6 @@
             if (actualSlot.classList.contains('foundation')) {
                 if (cards.length > 1) return false;
                 const slotSuitLock = actualSlot.getAttribute('data-suit');
-                // Any Ace can anchor onto any unassigned foundation slot lane
                 return !topCard ? weight === 1 : (slotSuitLock === suit && parseInt(topCard.getAttribute('data-weight')) === weight - 1);
             }
 
