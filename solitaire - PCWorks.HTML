@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>Classic Solitaire</title>
+    <style>
+        :root {
+            --green: #2e7d32;
+            --dark-green: #1b5e20;
+            --card-width: 12vw;
+            --card-height: 17vw;
+            --max-card-width: 90px;
+            --max-card-height: 130px;
+            --radius: 6px;
+        }
+        @media (min-width: 768px) {
+            :root {
+                --card-width: 85px;
+                --card-height: 120px;
+            }
+        }
+        * {
+            box-sizing: border-box;
+            user-select: none;
+            -webkit-user-select: none;
+            margin: 0;
+            padding: 0;
+        }
+        body {
+            background-color: var(--green);
+            font-family: -apple-system, BlinkMacSystemFont, sans-serif;
+            overflow: hidden;
+            position: relative;
+            height: 100vh;
+            width: 100vw;
+        }
+        #status-bar {
+            height: 50px;
+            background: rgba(0, 0, 0, 0.2);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 0 15px;
+            color: white;
+            font-weight: bold;
+            font-size: 16px;
+            z-index: 10;
+            position: relative;
+        }
+        .coin-display {
+            display: flex;
+            align-items: center;
+            gap: 5px;
+            background: rgba(0, 0, 0, 0.3);
+            padding: 5px 12px;
+            border-radius: 20px;
+            border: 1px solid #ffd700;
+        }
+        .coin-icon { color: #ffd700; }
+        #btn-new-game {
+            background: #ffd700;
+            color: #1b5e20;
+            border: none;
+            padding: 6px 15px;
+            border-radius: 15px;
+            font-weight: bold;
+            cursor: pointer;
+        }
+        #game-board {
+            position: relative;
+            width: 100%;
+            height: calc(100vh - 50px);
+            padding: 15px 10px;
+            display: flex;
+            flex-direction: column;
+            gap: 25px;
+        }
+        .row {
+            display: grid;
+            grid-template-columns: repeat(7, 1fr);
+            gap: 1.5vw;
+            width: 100%;
+            max-width: 800px;
+            margin: 0 auto;
+        }
+        .slot {
+            width: 100%;
+            max-width: var(--max-card-width);
+            height: var(--card-height);
+            max-height: var(--max-card-height);
+            border: 2px dashed rgba(255, 255, 255, 0.25);
+            border-radius: var(--radius);
+            position: relative;
+        }
+        
+        /* Layout grid tracking matching top row to bottom row columns */
+        #stock { grid-column: 1; }
+        #waste { grid-column: 2; }
+        #f-0 { grid-column: 4; }
+        #f-1 { grid-column: 5; }
+        #f-2 { grid-column: 6; }
+        #f-3 { grid-column: 7; }
+
+        .card {
+            width: 100%;
+            height: 100%;
+            background: white;
+            border-radius: var(--radius);
+            position: absolute;
+            top: 0; left: 0;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 5px;
+            cursor: pointer;
+            touch-action: none;
+        }
+        .card.back {
+            background: linear-gradient(135deg, #1565c0 25%, transparent 25%) -50px 0,
+                        linear-gradient(225deg, #1565c0 25%, transparent 25%) -50px 0,
+                        linear-gradient(45deg, #1565c0 25%, transparent 25%),
+                        linear-gradient(315deg, #1565c0 25%, #0d47a1 25%);
+            background-size: 20px 20px;
+            border: 3px solid white;
+        }
+        .card.red { color: #d32f2f; }
+        .card.black { color: #212121; }
+        .card-suit-top { font-size: 16px; font-weight: bold; line-height: 1; }
+        .card-suit-center { font-size: 28px; align-self: center; line-height: 1; }
+        .card-suit-bottom { font-size: 16px; font-weight: bold; align-self: flex-end; transform: rotate(180deg); line-height: 1; }
+        
+        .tableau-card {
+            --stack-index: 0;
+            top: calc(var(--stack-index) * 18px);
+        }
+        .waste-card {
+            --waste-index: 0;
+            left: calc(var(--waste-index) * 14px);
+        }
+        @media (min-height: 700px) {
+            .tableau-card { top: calc(var(--stack-index) * 25px); }
+            .waste-card { left: calc(var(--waste-index) * 18px); }
+        }
+        .dragging { opacity: 0.9; z-index: 1000 !important; pointer-events: none; box-shadow: 0 8px 16px rgba(0,0,0,0.4); }
+        #modal-overlay {
+            position: fixed;
+            top: 0; left: 0; width: 100vw; height: 100vh;
+            background: rgba(0,0,0,0.7);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 2000;
+        }
+        .modal { background: white; padding: 25px; border-radius: 12px; text-align: center; max-width: 320px; width: 90%; }
+        .modal h2 { margin-bottom: 15px; color: #1b5e20; }
+        .modal p { margin-bottom: 20px; color: #424242; }
+        .modal-btn { background: #2e7d32; color: white; border: none; padding: 12px 24px; font-size: 16px; font-weight: bold; border-radius: 8px; cursor: pointer; width: 100%; }
+    </style>
+</head>
+<body>
+    <div id="status-bar">
+        <div class="coin-display">
+            <span class="coin-icon">🪙</span>
+            <span id="coin-count">100</span> Coins
+        </div>
+        <button id="btn-new-game" onclick="promptNewGame()">New Game</button>
+    </div>
+    <div id="game-board">
+        <div class="row">
+            <div id="stock" class="slot" onclick="handleStockClick()"></div>
+            <div id="waste" class="slot"></div>
+            <div id="f-0" class="slot foundation" data-suit="H"></div>
+            <div id="f-1" class="slot foundation" data-suit="D"></div>
+            <div id="f-2" class="slot foundation" data-suit="C"></div>
+            <div id="f-3" class="slot foundation" data-suit="S"></div>
+        </div>
+        <div class="row">
+            <div id="t-0" class="slot tableau"></div>
+            <div id="t-1" class="slot tableau"></div>
+            <div id="t-2" class="slot tableau"></div>
+            <div id="t-3" class="slot tableau"></div>
+            <div id="t-4" class="slot tableau"></div>
+            <div id="t-5" class="slot tableau"></div>
+            <div id="t-6" class="slot tableau"></div>
+        </div>
+    </div>
+    <div id="modal-overlay">
+        <div class="modal">
+            <h2>Start New Game?</h2>
+            <p>Entry Fee: <span style="font-weight:bold; color:#e6b800;">🪙 52 Coins</span><br>Draws 3 cards at a time. Foundation moves earn 🪙 2 Coins.</p>
+            <button class="modal-btn" onclick="confirmNewGame()">Pay 52 Coins</button>
+        </div>
+    </div>
+    <script>
+        let coins = parseInt(localStorage.getItem('solitaire_coins'));
+        if (isNaN(coins)) coins = 100;
+
+        const SUITS = { 
+            'H': { icon: '♥', color: 'red' }, 
+            'D': { icon: '♦', color: 'red' }, 
+            'C': { icon: '♣', color: 'black' }, 
+            'S': { icon: '♠', color: 'black' } 
+        };
+        const VALUES = ['A', '2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K'];
+
+        let deck = [];
+        let dragContainer = null;
+        let dragCards = [];
+        let startX = 0, startY = 0;
+        let sourceSlot = null;
+
+        updateCoinDisplay();
+
+        function updateCoinDisplay() {
+            document.getElementById('coin-count').innerText = coins;
+            localStorage.setItem('solitaire_coins', coins);
+        }
+
+        function promptNewGame() {
+            document.getElementById('modal-overlay').style.display = 'flex';
+        }
+
+        function confirmNewGame() {
+            coins -= 52; 
+            updateCoinDisplay();
+            document.getElementById('modal-overlay').style.display = 'none';
+            initGame();
+        }
+
+        function initGame() {
+            document.querySelectorAll('.slot').forEach(slot => slot.innerHTML = '');
+            deck = [];
+            
+            Object.keys(SUITS).forEach(suit => {
+                VALUES.forEach((val, idx) => {
+                    deck.push({ value: val, weight: idx + 1, suit: suit });
+                });
+            });
+
+            for (let i = deck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+
+            for (let i = 0; i < 7; i++) {
+                for (let j = i; j < 7; j++) {
+                    const cardData = deck.pop();
+                    const cardEl = createCardElement(cardData);
+                    if (j === i) flipCardFaceUp(cardEl);
+                    document.getElementById(`t-${j}`).appendChild(cardEl);
+                }
+            }
+
+            const stockSlot = document.getElementById('stock');
+            while (deck.length > 0) {
+                stockSlot.appendChild(createCardElement(deck.pop()));
+            }
+            
+            updateCardPositions();
+        }
+
+        function createCardElement(data) {
+            const el = document.createElement('div');
+            el.classList.add('card', 'back', SUITS[data.suit].color);
+            el.dataset.value = data.value;
+            el.dataset.weight = data.weight;
+            el.dataset.suit = data.suit;
+            el.innerHTML = ''; 
+
+            el.addEventListener('mousedown', startDrag);
+            el.addEventListener('touchstart', startDrag, { passive: false });
+            return el;
+        }
+
+        function flipCardFaceUp(cardEl) {
+            if (!cardEl.classList.contains('back')) return;
+            cardEl.classList.remove('back');
+            const val = cardEl.dataset.value;
+            const suit = cardEl.dataset.suit;
+            cardEl.innerHTML = `
+                <div class="card-suit-top">${val}<br>${SUITS[suit].icon}</div>
+                <div class="card-suit-center">${SUITS[suit].icon}</div>
+                <div class="card-suit-bottom">${val}<br>${SUITS[suit].icon}</div>
+            `;
+        }
+
+        function updateCardPositions() {
+            document.querySelectorAll('.tableau').forEach(slot => {
+                slot.querySelectorAll('.card').forEach((card, index) => {
+                    card.classList.remove('waste-card');
+                    card.classList.add('tableau-card');
+                    card.style.left = '';
+                    card.style.setProperty('--stack-index', index);
+                });
+            });
+
+            document.querySelectorAll('.foundation').forEach(slot => {
+                slot.querySelectorAll('.card').forEach(card => {
+                    card.classList.remove('tableau-card', 'waste-card');
+                    card.style.top = '0px';
+                    card.style.left = '0px';
+                });
+            });
+
+            const wasteCards = document.getElementById('waste').querySelectorAll('.card');
+            wasteCards.forEach((card, index) => {
+                card.classList.remove('tableau-card');
+                card.style.top = '';
+                
+                const visibleIndex = Math.max(0, index - (wasteCards.length - 3));
+                if (index >= wasteCards.length - 3) {
+                    card.classList.add('waste-card');
+                    card.style.setProperty('--waste-index', visibleIndex);
+                    card.style.display = 'flex';
+                } else {
+                    card.style.display = 'none';
+                }
+            });
+        }
+
+        function handleStockClick() {
+            const stock = document.getElementById('stock');
+            const waste = document.getElementById('waste');
+
+            if (stock.children.length === 0) {
+                const cards = Array.from(waste.children).reverse();
+                cards.forEach(card => {
+                    card.classList.add('back');
+                    card.innerHTML = '';
+                    card.style.display = 'flex';
+                    stock.appendChild(card);
+                });
+            } else {
+                const drawCount = Math.min(3, stock.children.length);
+                for (let i = 0; i < drawCount; i++) {
+                    const card = stock.lastElementChild;
+                    flipCardFaceUp(card);
+                    waste.appendChild(card);
+                }
+            }
+            updateCardPositions();
+        }
+        function startDrag(e) {
+            const card = e.currentTarget;
+            if (card.classList.contains('back') || card.parentElement.id === 'stock') return;
+            if (card.parentElement.id === 'waste' && card !== card.parentElement.lastElementChild) return;
+
+            e.preventDefault();
+            sourceSlot = card.parentElement;
+            
+            if (sourceSlot.classList.contains('tableau')) {
+                const siblings = Array.from(sourceSlot.children);
+                dragCards = siblings.slice(siblings.indexOf(card));
+            } else {
+                dragCards = [card];
+            }
+
+            const clientX = e.touches ? e.touches.clientX : e.clientX;
+            const clientY = e.touches ? e.touches.clientY : e.clientY;
+            startX = clientX;
+            startY = clientY;
+
+            dragContainer = document.createElement('div');
+            dragContainer.style.position = 'fixed';
+            dragContainer.style.pointerEvents = 'none';
+            dragContainer.style.zIndex = '1000';
+            
+            const rect = card.getBoundingClientRect();
+            dragContainer.style.left = `${rect.left}px`;
+            dragContainer.style.top = `${rect.top}px`;
+            dragContainer.style.width = `${rect.width}px`;
+            dragContainer.style.height = `${rect.height}px`;
+            
+            dragCards.forEach((c, index) => {
+                c.classList.add('dragging');
+                c.style.left = '0px';
+                c.style.top = sourceSlot.classList.contains('tableau') ? `${index * (window.innerHeight > 700 ? 25 : 18)}px` : '0px';
+                dragContainer.appendChild(c);
+            });
+
+            document.body.appendChild(dragContainer);
+
+            window.addEventListener('mousemove', dragMove);
+            window.addEventListener('touchmove', dragMove, { passive: false });
+            window.addEventListener('mouseup', endDrag);
+            window.addEventListener('touchend', endDrag);
+        }
+
+        function dragMove(e) {
+            if (!dragContainer) return;
+            e.preventDefault();
+            const clientX = e.touches ? e.touches.clientX : e.clientX;
+            const clientY = e.touches ? e.touches.clientY : e.clientY;
+
+            dragContainer.style.transform = `translate3d(${clientX - startX}px, ${clientY - startY}px, 0)`;
+        }
+
+        function endDrag() {
+            window.removeEventListener('mousemove', dragMove);
+            window.removeEventListener('touchmove', dragMove);
+            window.removeEventListener('mouseup', endDrag);
+            window.removeEventListener('touchend', endDrag);
+
+            if (!dragContainer) return;
+
+            const rect = dragContainer.firstChild.getBoundingClientRect();
+            dragContainer.style.display = 'none';
+            let dropTarget = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+            dragContainer.style.display = 'block';
+
+            if (dropTarget) {
+                dropTarget = dropTarget.closest('.slot') || dropTarget.closest('.card')?.parentElement;
+            }
+
+            if (dropTarget && dropTarget.classList.contains('slot') && validateMove(dragCards, dropTarget)) {
+                const toFoundation = dropTarget.classList.contains('foundation');
+                
+                dragCards.forEach(c => {
+                    c.classList.remove('dragging');
+                    c.style.top = '';
+                    c.style.left = '';
+                    dropTarget.appendChild(c);
+                });
+
+                if (toFoundation) {
+                    coins += 2;
+                    updateCoinDisplay();
+                }
+
+                if (sourceSlot.classList.contains('tableau') && sourceSlot.children.length > 0) {
+                    flipCardFaceUp(sourceSlot.lastElementChild);
+                }
+            } else {
+                dragCards.forEach(c => {
+                    c.classList.remove('dragging');
+                    c.style.top = '';
+                    c.style.left = '';
+                    sourceSlot.appendChild(c);
+                });
+            }
+
+            dragContainer.remove();
+            dragContainer = null;
+            updateCardPositions();
+        }
+
+        function validateMove(cards, targetSlot) {
+            if (!cards || cards.length === 0) return false;
+            const firstCard = cards[0]; // Validate based on the base card being moved
+            const weight = parseInt(firstCard.dataset.weight);
+            const suit = firstCard.dataset.suit;
+            const color = SUITS[suit].color;
+            const topCard = targetSlot.lastElementChild;
+
+            if (targetSlot.classList.contains('foundation')) {
+                if (cards.length > 1) return false;
+                return !topCard ? weight === 1 : (topCard.dataset.suit === suit && parseInt(topCard.dataset.weight) === weight - 1);
+            }
+
+            if (targetSlot.classList.contains('tableau')) {
+                return !topCard ? weight === 13 : (!topCard.classList.contains('back') && SUITS[topCard.dataset.suit].color !== color && parseInt(topCard.dataset.weight) === weight + 1);
+            }
+
+            return false;
+        }
+
+        window.onload = () => { promptNewGame(); };
+    </script>
+</body>
+</html>
