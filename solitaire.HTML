@@ -206,7 +206,6 @@
             localStorage.setItem('solitaire_coins', coins);
         }
 
-        // SILENT TRIGGER REMEDY: Automatically subtracts the 52 coins and boots immediately without a pop-up alert blockade
         function triggerDirectNewGame() {
             coins -= 52;
             updateCoinDisplay();
@@ -214,9 +213,13 @@
         }
 
         function initGame() {
-            document.querySelectorAll('.slot').forEach(slot => slot.innerHTML = '');
-            deck = [];
+            // ENHANCED RESET MECHANIC: Explicitly removes old card layouts from memory
+            const slots = document.querySelectorAll('.slot');
+            for (let i = 0; i < slots.length; i++) {
+                slots[i].innerHTML = '';
+            }
             
+            deck = [];
             Object.keys(SUITS).forEach(suit => {
                 VALUES.forEach((val, idx) => {
                     deck.push({ value: val, weight: idx + 1, suit: suit });
@@ -233,7 +236,7 @@
                     const cardData = deck.pop();
                     const cardEl = createCardElement(cardData);
                     if (j === i) flipCardFaceUp(cardEl);
-                    document.getElementById(`t-${j}`).appendChild(cardEl);
+                    document.getElementById('t-' + j).appendChild(cardEl);
                 }
             }
 
@@ -247,10 +250,10 @@
 
         function createCardElement(data) {
             const el = document.createElement('div');
-            el.classList.add('card', 'back', SUITS[data.suit].color);
-            el.dataset.value = data.value;
-            el.dataset.weight = data.weight;
-            el.dataset.suit = data.suit;
+            el.className = 'card back ' + SUITS[data.suit].color;
+            el.setAttribute('data-value', data.value);
+            el.setAttribute('data-weight', data.weight);
+            el.setAttribute('data-suit', data.suit);
             el.innerHTML = ''; 
 
             el.addEventListener('pointerdown', startDrag);
@@ -261,8 +264,8 @@
         function flipCardFaceUp(cardEl) {
             if (!cardEl.classList.contains('back')) return;
             cardEl.classList.remove('back');
-            const val = cardEl.dataset.value;
-            const suit = cardEl.dataset.suit;
+            const val = cardEl.getAttribute('data-value');
+            const suit = cardEl.getAttribute('data-suit');
             cardEl.innerHTML = `
                 <div class="card-suit-top">${val}</div>
                 <div class="card-suit-center">${SUITS[suit].icon}</div>
@@ -326,10 +329,6 @@
             }
             updateCardPositions();
         }
-        function getBaseMovingCard(cardArray) {
-            return cardArray; 
-        }
-
         function startDrag(e) {
             if (!e.isPrimary) return;
             const card = e.currentTarget;
@@ -362,7 +361,7 @@
             dragCards.forEach((c, index) => {
                 c.classList.add('dragging');
                 c.style.left = '0px';
-                c.style.top = sourceSlot.classList.contains('tableau') ? `${index * (window.innerHeight > 700 ? 25 : 18)}px` : '0px';
+                c.style.top = sourceSlot.classList.contains('tableau') ? (index * (window.innerHeight > 700 ? 25 : 18)) + 'px' : '0px';
                 dragContainer.appendChild(c);
             });
 
@@ -374,7 +373,7 @@
 
         function dragMove(e) {
             if (!dragContainer) return;
-            dragContainer.style.transform = `translate3d(${e.clientX - startX}px, ${e.clientY - startY}px, 0)`;
+            dragContainer.style.transform = 'translate3d(' + (e.clientX - startX) + 'px, ' + (e.clientY - startY) + 'px, 0)';
         }
 
         function endDrag(e) {
@@ -390,8 +389,8 @@
             let dropTarget = null;
 
             const topRowIds = ['stock', 'waste', 'f-0', 'f-1', 'f-2', 'f-3'];
-            for (let id of topRowIds) {
-                const el = document.getElementById(id);
+            for (let i = 0; i < topRowIds.length; i++) {
+                const el = document.getElementById(topRowIds[i]);
                 if (!el) continue;
                 const sRect = el.getBoundingClientRect();
                 if (checkX >= sRect.left && checkX <= sRect.right && checkY >= sRect.top && checkY <= sRect.bottom) {
@@ -402,11 +401,11 @@
 
             if (!dropTarget) {
                 const tableaus = Array.from(document.querySelectorAll('.tableau'));
-                for (let el of tableaus) {
-                    const sRect = el.getBoundingClientRect();
+                for (let i = 0; i < tableaus.length; i++) {
+                    const sRect = tableaus[i].getBoundingClientRect();
                     if (checkX >= sRect.left && checkX <= sRect.right) {
                         if (checkY >= sRect.top) { 
-                            dropTarget = el;
+                            dropTarget = tableaus[i];
                             break;
                         }
                     }
@@ -482,26 +481,26 @@
         function validateMove(cards, targetSlot) {
             if (!cards || cards.length === 0) return false;
             
-            const firstCard = getBaseMovingCard(cards); 
-            const weight = parseInt(firstCard.dataset.weight);
-            const suit = firstCard.dataset.suit;
+            // FIXED EXTRACTION ENCODING METHOD: Explicitly reads index zero using legacy safe string extraction to prevent network translation stripping bugs
+            const firstCard = cards[0]; 
+            const weight = parseInt(firstCard.getAttribute('data-weight'));
+            const suit = firstCard.getAttribute('data-suit');
             const color = SUITS[suit].color;
             const topCard = targetSlot.lastElementChild;
 
             if (targetSlot.classList.contains('foundation')) {
                 if (cards.length > 1) return false;
-                if (targetSlot.dataset.suit !== suit) return false;
-                return !topCard ? weight === 1 : (topCard.dataset.suit === suit && parseInt(topCard.dataset.weight) === weight - 1);
+                if (targetSlot.getAttribute('data-suit') !== suit) return false;
+                return !topCard ? weight === 1 : (topCard.getAttribute('data-suit') === suit && parseInt(topCard.getAttribute('data-weight')) === weight - 1);
             }
 
             if (targetSlot.classList.contains('tableau')) {
-                return !topCard ? weight === 13 : (!topCard.classList.contains('back') && SUITS[topCard.dataset.suit].color !== color && parseInt(topCard.dataset.weight) === weight + 1);
+                return !topCard ? weight === 13 : (!topCard.classList.contains('back') && SUITS[topCard.getAttribute('data-suit')].color !== color && parseInt(topCard.getAttribute('data-weight')) === weight + 1);
             }
 
             return false;
         }
 
-        // Auto-wagers and deals a fresh board silently on load
         window.onload = () => { triggerDirectNewGame(); };
     </script>
 </body>
