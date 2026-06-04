@@ -1,0 +1,632 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Luxury Classic Hearts</title>
+    <style>
+		@keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
+
+        * { box-sizing: border-box; margin: 0; padding: 0; user-select: none; }
+        body {
+            font-family: "Georgia", serif;
+            background: radial-gradient(circle, #0e3015 0%, #061a0b 100%);
+            color: #f3e5ab;
+            overflow: hidden;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+        #header {
+            display: flex;
+            justify-content: space-between;
+            padding: 12px 20px;
+            background: linear-gradient(180deg, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0.4) 100%);
+            border-bottom: 2px solid #d4af37;
+            font-size: 15px;
+            letter-spacing: 1px;
+            font-weight: bold;
+        }
+        #coin-display { color: #ffd700; text-shadow: 0 0 5px rgba(255,215,0,0.4); }
+        #game-layout {
+            flex: 1;
+            position: relative;
+            display: grid;
+            grid-template-rows: 1fr 2fr 1fr;
+            grid-template-columns: 1fr 2fr 1fr;
+            padding: 10px;
+        }
+        .player-area {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        #p2-area { grid-area: 2 / 1 / 3 / 2; }
+        #p3-area { grid-area: 1 / 2 / 2 / 3; }
+        #p4-area { grid-area: 2 / 3 / 3 / 4; }
+        #p1-area { grid-area: 3 / 2 / 4 / 3; }
+        #table-center {
+            grid-area: 2 / 2 / 3 / 3;
+            border: 3px double #d4af37;
+            border-radius: 15px;
+            background: rgba(0,0,0,0.15);
+            box-shadow: inset 0 0 30px rgba(0,0,0,0.6);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            position: relative;
+        }
+        .player-info {
+            background: linear-gradient(135deg, #1c1c1c 0%, #0d0d0d 100%);
+            border: 1px solid #d4af37;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 4px;
+            font-size: 11px;
+            text-align: center;
+            margin-bottom: 5px;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+        }
+        .hand { display: flex; justify-content: center; width: 100%; }
+        #p1-area .hand {
+            max-width: 90vw;
+            overflow-x: auto;
+            padding-bottom: 10px;
+            pointer-events: auto;
+        }
+        .card, .played-card {
+            width: 48px;
+            height: 70px;
+            background: #ffffff;
+            color: #1a1a1a;
+            border-radius: 6px;
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            padding: 5px;
+            font-family: "Helvetica Neue", Helvetica, Arial, sans-serif;
+            font-weight: 700;
+            font-size: 13px;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
+            cursor: pointer;
+            margin-left: -18px;
+            position: relative;
+            border: 1px solid #cccccc;
+        }
+        #p1-area .card:first-child { margin-left: 0; }
+        .card.red, .played-card.red { color: #b81d24; }
+        .card.black, .played-card.black { color: #1a1a1a; }
+        .card.selected { 
+            transform: translateY(-15px) !important; 
+            border: 2px solid #ff9800; 
+            box-shadow: 0 0 10px #ff9800; 
+        }
+        .card.valid-card { 
+            transform: translateY(0); 
+            filter: brightness(1); 
+            border: 1px solid #2ecc71; 
+            box-shadow: 0 0 8px rgba(46,204,113,0.6); 
+        }
+        .card.valid-card:hover { 
+            transform: translateY(-10px); 
+            z-index: 5; 
+        }
+        .card.invalid-card { 
+            filter: brightness(0.4); 
+            opacity: 0.6; 
+            cursor: not-allowed; 
+            transform: translateY(0) !important; 
+        }
+        .card.received-glow { 
+            border: 2px solid #ffd700 !important; 
+            box-shadow: 0 0 12px #ffd700 !important; 
+        }
+        .card-suit-large { font-size: 20px; align-self: center; line-height: 1; margin-top: -5px; }
+        .card-back {
+            background: linear-gradient(135deg, #8a151b 25%, transparent 25%) -50px 0, 
+                        linear-gradient(225deg, #8a151b 25%, transparent 25%) -50px 0, 
+                        linear-gradient(45deg, #8a151b 25%, transparent 25%), 
+                        linear-gradient(315deg, #8a151b 25%, #4a0508 25%);
+            background-size: 10px 10px; border: 2px solid #d4af37;
+        }
+        .played-card { position: absolute; margin-left: 0; }
+        #played-p1 { bottom: 15px; left: calc(50% - 24px); }
+        #played-p2 { left: 15px; top: calc(50% - 35px); }
+        #played-p3 { top: 15px; left: calc(50% - 24px); }
+        #played-p4 { right: 15px; top: calc(50% - 35px); }
+        .btn {
+            background: linear-gradient(180deg, #d4af37 0%, #aa7c11 100%); color: #000; border: 1px solid #ffe89e;
+            padding: 10px 22px; border-radius: 4px; font-size: 14px; font-weight: bold; letter-spacing: 1px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.4); text-transform: uppercase;
+        }
+        #action-overlay {
+            position: absolute; z-index: 100; background: rgba(5, 15, 8, 0.95); border: 2px solid #d4af37; border-radius: 12px;
+            top: 10px; left: 10px; right: 10px; bottom: 10px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px;
+        }
+        #action-overlay h2 { margin-bottom: 12px; color: #ffd700; font-size: 22px; letter-spacing: 1.5px; }
+        .hidden { display: none !important; }
+        @media (min-width: 600px) {
+            .card, .played-card { width: 68px; height: 100px; font-size: 16px; padding: 7px; margin-left: -24px; }
+            .card-suit-large { font-size: 30px; }
+            #played-p1 { left: calc(50% - 34px); bottom: 20px; }
+            #played-p3 { left: calc(50% - 34px); top: 20px; }
+            #played-p2 { top: calc(50% - 50px); left: 20px; }
+            #played-p4 { top: calc(50% - 50px); right: 20px; }
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <div id="coin-display">👑 COINS: <span id="user-coins">100</span></div>
+        <div id="game-status">THE HEARTS CLUB</div>
+        <div id="round-display">ROUND: 1</div>
+    </div>
+    <div id="game-layout">
+        <div id="p2-area" class="player-area">
+            <div class="player-info">👩‍💼 WEST (AI)<br>Score: <span id="p2-score">0</span><br>♥: <span id="p2-hearts">0</span> | ♠Q: <span id="p2-queen">❌</span></div>
+            <div class="hand" id="p2-hand"></div>
+        </div>
+        <div id="p3-area" class="player-area">
+            <div class="player-info">🧙‍♂️ NORTH (AI)<br>Score: <span id="p3-score">0</span><br>♥: <span id="p3-hearts">0</span> | ♠Q: <span id="p3-queen">❌</span></div>
+            <div class="hand" id="p3-hand"></div>
+        </div>
+        <div id="p4-area" class="player-area">
+            <div class="player-info">🤠 EAST (AI)<br>Score: <span id="p4-score">0</span><br>♥: <span id="p4-hearts">0</span> | ♠Q: <span id="p4-queen">❌</span></div>
+            <div class="hand" id="p4-hand"></div>
+        </div>
+        <div id="table-center">
+            <div id="played-p1" class="played-card hidden"></div>
+            <div id="played-p2" class="played-card hidden"></div>
+            <div id="played-p3" class="played-card hidden"></div>
+            <div id="played-p4" class="played-card hidden"></div>
+            <div id="action-overlay">
+                <h2 id="overlay-title">The Royal Room</h2>
+                <div id="overlay-msg" style="margin-bottom:20px; font-size:14px; color:#f3e5ab;"></div>
+                <button id="overlay-btn" class="btn">Begin Match</button>
+            </div>
+        </div>
+        <div id="p1-area" class="player-area">
+            <div class="player-info">👑 YOU<br>Score: <span id="p1-score">0</span><br>♥: <span id="p1-hearts">0</span> | ♠Q: <span id="p1-queen">❌</span></div>
+            <div class="hand" id="p1-hand"></div>
+        </div>
+    </div>
+    <script>
+        const SUITS = { 'C': '♣', 'D': '♦', 'S': '♠', 'H': '♥' };
+        const VALUES = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
+        
+        let state = {
+            coins: parseInt(localStorage.getItem('hearts_coins')) || 100,
+            scores: [0, 0, 0, 0],
+            trickScores: [0, 0, 0, 0],
+            hands: [[], [], [], []],
+            currentTrick: [],
+            leadingSuit: null,
+            heartsBroken: false,
+            currentPlayer: 0,
+            selectedCards: [],
+            receivedCards: [],
+            passDirection: 0, 
+            roundNum: 1,
+            gameState: 'START',
+            capturedCounts: [
+                { hearts: 0, queen: false },
+                { hearts: 0, queen: false },
+                { hearts: 0, queen: false },
+                { hearts: 0, queen: false }
+            ]
+        };
+
+        function initDOM() {
+            document.getElementById('user-coins').innerText = state.coins;
+            document.getElementById('overlay-btn').addEventListener('click', handleOverlayClick);
+            updateScoresDOM();
+            showOverlay("The Royal Room", "Welcome to Hearts! Tap below to start your professional casino match.", "Begin Match");
+        }
+
+        function saveCoins() {
+            localStorage.setItem('hearts_coins', state.coins);
+            document.getElementById('user-coins').innerText = state.coins;
+        }
+        function createDeck() {
+            let deck = [];
+            for (let s in SUITS) {
+                for (let v of VALUES) {
+                    deck.push({ suit: s, val: v, power: VALUES.indexOf(v) });
+                }
+            }
+            return deck;
+        }
+
+        function shuffle(deck) {
+            for (let i = deck.length - 1; i > 0; i--) {
+                let j = Math.floor(Math.random() * (i + 1));
+                [deck[i], deck[j]] = [deck[j], deck[i]];
+            }
+            return deck;
+        }
+
+        function sortHand(hand) {
+            const suitOrder = { 'C': 0, 'D': 1, 'S': 2, 'H': 3 };
+            return hand.sort((a, b) => {
+                if (suitOrder[a.suit] !== suitOrder[b.suit]) return suitOrder[a.suit] - suitOrder[b.suit];
+                return a.power - b.power;
+            });
+        }
+        function updateScoresDOM() {
+            for(let i=1; i<=4; i++) {
+                document.getElementById(`p${i}-score`).innerText = state.scores[i-1];
+            }
+            document.getElementById('round-display').innerText = `ROUND: ${state.roundNum}`;
+            updateCapturedDisplays();
+        }
+
+        function updateCapturedDisplays() {
+            for (let i = 1; i <= 4; i++) {
+                const count = state.capturedCounts[i-1];
+                document.getElementById(`p${i}-hearts`).innerText = count.hearts;
+                document.getElementById(`p${i}-queen`).innerText = count.queen ? '✅' : '❌';
+            }
+        }
+
+        function startNewRound() {
+            let deck = shuffle(createDeck());
+            state.hands = [[], [], [], []];
+            for (let i = 0; i < 52; i++) {
+                state.hands[i % 4].push(deck[i]);
+            }
+            for (let i = 0; i < 4; i++) {
+                state.hands[i] = sortHand(state.hands[i]);
+            }
+            
+            state.trickScores = [0, 0, 0, 0];
+            state.heartsBroken = false;
+            state.currentTrick = [];
+            state.leadingSuit = null;
+            state.receivedCards = [];
+            
+            for (let i = 0; i < 4; i++) {
+                state.capturedCounts[i] = { hearts: 0, queen: false };
+            }
+            updateCapturedDisplays();
+            
+            state.passDirection = (state.roundNum - 1) % 4;
+            
+            if (state.passDirection === 3) {
+                state.gameState = 'PLAYING';
+                hideOverlay();
+                renderPlayerHand();
+                renderOpponentBacks();
+                determineStarter();
+            } else {
+                state.gameState = 'PASSING';
+                state.selectedCards = [];
+                renderPlayerHand();
+                renderOpponentBacks();
+                const directions = ["LEFT", "RIGHT", "ACROSS"];
+                showOverlay("Passing Phase", `Select 3 cards to pass <b>${directions[state.passDirection]}</b>.`, "Confirm Pass");
+            }
+        }
+        function renderPlayerHand() {
+            const container = document.getElementById('p1-hand');
+            container.innerHTML = '';
+            state.hands[0].forEach((card, idx) => {
+                const el = document.createElement('div');
+                const isRed = (card.suit === 'H' || card.suit === 'D');
+                el.className = `card ${isRed ? 'red' : 'black'}`;
+                
+                if (state.selectedCards.includes(idx)) el.classList.add('selected');
+                
+                const isReceived = state.receivedCards.some(rc => rc.suit === card.suit && rc.val === card.val);
+                if (isReceived && state.gameState === 'PLAYING') el.classList.add('received-glow');
+
+                if (state.gameState === 'PLAYING') {
+                    if (state.currentPlayer === 0 && isValidPlay(card, state.hands[0])) {
+                        el.classList.add('valid-card');
+                    } else {
+                        el.classList.add('invalid-card');
+                    }
+                }
+                
+                el.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; width:100%;">
+                        <span>${card.val}</span><span>${SUITS[card.suit]}</span>
+                    </div>
+                    <div class="card-suit-large">${SUITS[card.suit]}</div>
+                `;
+                el.addEventListener('click', () => handleCardClick(idx));
+                container.appendChild(el);
+            });
+        }
+        function renderOpponentBacks() {
+            for(let p=2; p<=4; p++) {
+                const container = document.getElementById(`p${p}-hand`);
+                container.innerHTML = '';
+                let count = state.hands[p-1].length;
+                if(count > 0) {
+                    const pack = document.createElement('div');
+                    pack.style.display = 'flex';
+                    for(let k=0; k<Math.min(count, 5); k++){
+                        const b = document.createElement('div');
+                        b.className = 'card card-back';
+                        b.style.marginLeft = k === 0 ? '0px' : '-35px';
+                        b.style.cursor = 'default';
+                        pack.appendChild(b);
+                    }
+                    container.appendChild(pack);
+                }
+            }
+        }
+
+        function handleCardClick(idx) {
+            if (state.gameState === 'PASSING') {
+                if (state.selectedCards.includes(idx)) {
+                    state.selectedCards = state.selectedCards.filter(i => i !== idx);
+                } else if (state.selectedCards.length < 3) {
+                    state.selectedCards.push(idx);
+                }
+                renderPlayerHand();
+            } else if (state.gameState === 'PLAYING' && state.currentPlayer === 0) {
+                let card = state.hands[0][idx];
+                if (isValidPlay(card, state.hands[0])) {
+                    executePlay(0, idx);
+                }
+            }
+        }
+        function executePassing() {
+            const passTargetMatrix = [
+               [1, 2, 3, 0], // Left
+               [3, 0, 1, 2], // Right
+               [2, 3, 0, 1]  // Across
+            ][state.passDirection];
+
+            let passedCards = [[], [], [], []];
+            state.selectedCards.sort((a,b)=>b-a).forEach(idx => {
+                passedCards[0].push(state.hands[0].splice(idx, 1)[0]);
+            });
+            for(let p=1; p<=3; p++) {
+                passedCards[p] = state.hands[p].splice(-3, 3);
+            }
+            
+            for(let p=0; p<4; p++) {
+                let targetIdx = passTargetMatrix[p];
+                state.hands[targetIdx] = state.hands[targetIdx].concat(passedCards[p]);
+                state.hands[targetIdx] = sortHand(state.hands[targetIdx]);
+                if (targetIdx === 0) state.receivedCards = passedCards[p];
+            }
+            
+            state.gameState = 'PLAYING';
+            hideOverlay();
+            renderPlayerHand();
+            renderOpponentBacks();
+            determineStarter();
+        }
+        function determineStarter() {
+            for (let p = 0; p < 4; p++) {
+                if (state.hands[p].some(c => c.suit === 'C' && c.val === '2')) {
+                    state.currentPlayer = p;
+                    break;
+                }
+            }
+            if (state.currentPlayer !== 0) {
+                setTimeout(playAICallback, 800);
+            } else {
+                document.getElementById('game-status').innerText = "YOUR TURN. PLAY 2 OF CLUBS.";
+                renderPlayerHand();
+            }
+        }
+
+        function isValidPlay(card, hand) {
+            let totalCardsRemaining = state.hands[0].length + state.hands[1].length + state.hands[2].length + state.hands[3].length;
+            let isFirstTrick = (totalCardsRemaining === 52 || (state.currentTrick.length > 0 && totalCardsRemaining === 51));
+            
+            if (isFirstTrick && state.currentTrick.length === 0) {
+                return card.suit === 'C' && card.val === '2';
+            }
+            if (state.currentTrick.length === 0) {
+                if (card.suit === 'H' && !state.heartsBroken) {
+                    return hand.every(c => c.suit === 'H');
+                }
+                return true;
+            }
+            if (card.suit === state.leadingSuit) return true;
+            if (hand.some(c => c.suit === state.leadingSuit)) return false;
+            
+            if (isFirstTrick && (card.suit === 'H' || (card.suit === 'S' && card.val === 'Q'))) {
+                return hand.every(c => c.suit === 'H' || (c.suit === 'S' && c.val === 'Q'));
+            }
+            return true;
+        }
+        function executePlay(playerIdx, cardIdx) {
+            let card = state.hands[playerIdx].splice(cardIdx, 1)[0];
+            if (state.currentTrick.length === 0) state.leadingSuit = card.suit;
+            if (card.suit === 'H') state.heartsBroken = true;
+            
+            state.currentTrick.push({ player: playerIdx, card: card });
+            displayPlayedCard(playerIdx, card);
+            
+            if (playerIdx === 0) renderPlayerHand();
+            else renderOpponentBacks();
+
+            state.currentPlayer = (playerIdx + 1) % 4;
+            
+            if (state.currentTrick.length === 4) {
+                setTimeout(evaluateTrick, 1200);
+            } else {
+                if (state.currentPlayer !== 0) setTimeout(playAICallback, 800);
+                else {
+                    document.getElementById('game-status').innerText = "YOUR TURN";
+                    renderPlayerHand();
+                }
+            }
+        }
+
+        function displayPlayedCard(player, card) {
+            let el = document.getElementById(`played-p${player + 1}`);
+            const isRed = (card.suit === 'H' || card.suit === 'D');
+            el.className = `played-card ${isRed ? 'red' : 'black'}`;
+            el.innerHTML = `
+                <div style="display:flex; justify-content:space-between; width:100%;">
+                    <span>${card.val}</span><span>${SUITS[card.suit]}</span>
+                </div>
+                <div class="card-suit-large">${SUITS[card.suit]}</div>
+            `;
+            el.classList.remove('hidden');
+        }
+        function playAICallback() {
+            let p = state.currentPlayer;
+            let hand = state.hands[p];
+            let validIndices = [];
+            hand.forEach((c, i) => { if (isValidPlay(c, hand)) validIndices.push(i); });
+            if(validIndices.length === 0) validIndices = hand.map((_, i) => i);
+            
+            let bestIdx = validIndices[0];
+            let lowestPower = 99;
+            validIndices.forEach(idx => {
+                if (hand[idx].power < lowestPower) {
+                    lowestPower = hand[idx].power;
+                    bestIdx = idx;
+                }
+            });
+            executePlay(p, bestIdx);
+        }
+
+        function evaluateTrick() {
+            let winIdx = 0;
+            let maxPower = -1;
+            state.currentTrick.forEach((t, index) => {
+                if (t.card.suit === state.leadingSuit && t.card.power > maxPower) {
+                    maxPower = t.card.power; winIdx = index;
+                }
+            });
+            
+            let winner = state.currentTrick[winIdx].player;
+            let points = 0; let capturedQueen = false; let capturedHearts = 0;
+
+            state.currentTrick.forEach(t => {
+                if (t.card.suit === 'H') { points += 1; capturedHearts += 1; }
+                if (t.card.suit === 'S' && t.card.val === 'Q') { points += 13; capturedQueen = true; }
+            });
+            
+            state.trickScores[winner] += points;
+            state.capturedCounts[winner].hearts += capturedHearts;
+            if (capturedQueen) state.capturedCounts[winner].queen = true;
+            
+            state.currentPlayer = winner; state.leadingSuit = null; state.currentTrick = [];
+            
+            for(let i=1; i<=4; i++) document.getElementById(`played-p${i}`).classList.add('hidden');
+            updateCapturedDisplays();
+            
+            if (state.hands[0].length === 0) {
+                processRoundEnd();
+            } else {
+                if (state.currentPlayer !== 0) setTimeout(playAICallback, 800);
+                else {
+                    document.getElementById('game-status').innerText = "YOUR TURN";
+                    renderPlayerHand();
+                }
+            }
+        }
+	        function processRoundEnd() {
+            let moonShooter = -1;
+            const names = ["You", "West", "North", "East"];
+            
+            for (let i = 0; i < 4; i++) {
+                if (state.trickScores[i] === 26) { moonShooter = i; break; }
+            }
+            
+            let moonBanner = "";
+            if (moonShooter !== -1) {
+                // Apply classic scoring penalty adjustment rules
+                for (let i = 0; i < 4; i++) {
+                    if (i === moonShooter) state.trickScores[i] = 0;
+                    else state.trickScores[i] = 26;
+                }
+                // Construct a glowing custom visual announcement element
+                moonBanner = `<div style="color:#ffd700; font-weight:bold; font-size:18px; margin:15px 0; text-shadow:0 0 15px #ff9800; animation:pulse 1.5s infinite;">
+                    🚀 SHOOT THE MOON! 🚀<br>
+                    <span style="color:#fff;">${names[moonShooter]}</span> captured every single point card!
+                </div>`;
+            }
+            
+            for (let i = 0; i < 4; i++) state.scores[i] += state.trickScores[i];
+            updateScoresDOM();
+            
+            if (state.scores.some(s => s >= 100)) {
+                processGamePayouts();
+            } else {
+                state.roundNum++;
+                state.gameState = 'ROUND_END';
+                
+                let roundSummary = `${moonBanner}
+                <b>Scores this round:</b><br>
+                You: ${state.trickScores[0]} | West: ${state.trickScores[1]}<br>
+                North: ${state.trickScores[2]} | East: ${state.trickScores[3]}`;
+                
+                showOverlay(`Round ${state.roundNum - 1} Complete`, roundSummary, "Advance to Next Round");
+            }
+        }
+
+        function processGamePayouts() {
+            state.gameState = 'GAME_END';
+            let players = [
+                { id: 0, name: 'You', score: state.scores[0] },
+                { id: 1, name: 'West', score: state.scores[1] },
+                { id: 2, name: 'North', score: state.scores[2] },
+                { id: 3, name: 'East', score: state.scores[3] }
+            ];
+            players.sort((a, b) => a.score - b.score);
+            
+            let coinDiff = 0;
+            if (players[0].id === 0) coinDiff = 5;       
+            else if (players[1].id === 0) coinDiff = 3;  
+            else if (players[2].id === 0) coinDiff = 0;  
+            else if (players[3].id === 0) coinDiff = -5; 
+            
+            state.coins += coinDiff;
+            saveCoins();
+            
+            let report = `<b>Tournament Finishes:</b><br>
+            👑 1st Place: ${players[0].name} (${players[0].score})<br>
+            🥈 2nd Place: ${players[1].name} (${players[1].score})<br>
+            🥉 3rd Place: ${players[2].name} (${players[2].score})<br>
+            ❌ 4th Place: ${players[3].name} (${players[3].score})<br><br>
+            <b>Payout Details:</b> Balance adjusted by <b style="color:#ffd700;">${coinDiff >= 0 ? '+'+coinDiff : coinDiff} Coins</b>!`;
+            
+            showOverlay("Tournament Complete", report, "New Match");
+        }
+		
+        function handleOverlayClick() {
+            if (state.gameState === 'START' || state.gameState === 'ROUND_END') {
+                hideOverlay();
+                startNewRound();
+            } else if (state.gameState === 'PASSING') {
+                if (state.selectedCards.length !== 3) {
+                    alert("Please select exactly 3 cards to pass.");
+                    return;
+                }
+                executePassing();
+            } else if (state.gameState === 'GAME_END') {
+                state.scores = [0, 0, 0, 0];
+                state.roundNum = 1;
+                updateScoresDOM();
+                state.gameState = 'START';
+                startNewRound();
+            }
+        }
+
+        function showOverlay(title, msg, btnText) {
+            document.getElementById('overlay-title').innerHTML = title;
+            document.getElementById('overlay-msg').innerHTML = msg;
+            document.getElementById('overlay-btn').innerText = btnText;
+            document.getElementById('action-overlay').classList.remove('hidden');
+        }
+
+        function hideOverlay() {
+            document.getElementById('action-overlay').classList.add('hidden');
+        }
+
+        window.onload = initDOM;
+    </script>
+</body>
+</html>
