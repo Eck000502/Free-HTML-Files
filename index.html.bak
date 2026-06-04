@@ -98,8 +98,8 @@
         <div class="game-card">
             <span class="game-title">Hearts</span>
             <div class="actions">
-                <a href="Hearts.html" class="btn-play">Play Game</a>
-                <a href="Hearts.html" download="Hearts.html" class="btn-download">Download</a>
+                <a href="Hearts.HTML" class="btn-play">Play Game</a>
+                <a href="Hearts.HTML" download="Hearts.HTML" class="btn-download">Download</a>
             </div>
         </div>
 
