@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0, viewport-fit=cover">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, minimum-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <title>Classic Solitaire</title>
     <style>
         :root {
@@ -26,6 +26,11 @@
             -webkit-user-select: none;
             margin: 0;
             padding: 0;
+        }
+        html, body {
+            -webkit-touch-callout: none;
+            -webkit-text-size-adjust: 100%;
+            -webkit-tap-highlight-color: transparent;
         }
         body {
             background-color: var(--green);
@@ -116,6 +121,9 @@
             justify-content: space-between;
             padding: 6px 4px;
             cursor: pointer;
+            -webkit-touch-callout: none;
+            -webkit-user-select: none;
+            user-select: none;
             /* STRICT GESTURE LOCK: Prevents mobile drag actions from being intercepted or canceled by default browser panning */
             touch-action: none;
         }
@@ -201,6 +209,15 @@
         let sourceSlot = null;
         let lastTap = 0;
 
+        function blockZoomGesture(e) {
+            if (e && typeof e.preventDefault === 'function') e.preventDefault();
+            if (e && typeof e.stopPropagation === 'function') e.stopPropagation();
+        }
+
+        ['gesturestart', 'gesturechange', 'gestureend'].forEach(eventName => {
+            document.addEventListener(eventName, blockZoomGesture, { passive: false });
+        });
+
         updateCoinDisplay();
 
         function updateCoinDisplay() {
@@ -259,6 +276,9 @@
             el.innerHTML = ''; 
 
             el.addEventListener('pointerdown', startDrag);
+            el.addEventListener('touchstart', blockZoomGesture, { passive: false });
+            el.addEventListener('touchmove', blockZoomGesture, { passive: false });
+            el.addEventListener('touchend', blockZoomGesture, { passive: false });
             return el;
         }
 
@@ -342,13 +362,13 @@
             lastTap = currentTime;
 
             if (tapLength < 300 && tapLength > 0) {
-                e.preventDefault();
+                blockZoomGesture(e);
                 tryAutoSnap(card);
                 return; 
             }
 
             // Prevent default touch behaviors like scrolling or text selection
-            e.preventDefault();
+            blockZoomGesture(e);
 
             sourceSlot = card.parentElement;
             
@@ -448,7 +468,7 @@
                 });
 
                 if (toFoundation) {
-                    coins += 4;
+                    coins += 2;
                     updateCoinDisplay();
                 }
 
