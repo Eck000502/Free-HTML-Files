@@ -448,7 +448,7 @@
                 });
 
                 if (toFoundation) {
-                    coins += 4;
+                    coins += 2;
                     updateCoinDisplay();
                 }
 
