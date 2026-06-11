@@ -16,7 +16,8 @@
 </div>
 <div id="game-container">
     <div id="info-text">Your turn (Mother of Pearl) - Roll the dice to begin</div>
-    <div id="board">
+    <div id="board-shell">
+        <div id="board">
         <!-- TOP ROW -->
         <div class="board-row">
             <div class="board-half" id="board-top-left">
@@ -66,28 +67,39 @@
                 <div class="off-tray" id="off-p1"></div>
             </div>
         </div>
+        <div id="control-overlay">
+            <div class="corner-panel" id="top-left-controls">
+                <div class="btn-group">
+                    <span class="label">Scale:</span>
+                    <button onclick="adjustScaling(-0.05)">-</button>
+                    <button onclick="adjustScaling(0.05)">+</button>
+                </div>
+            </div>
+            <div class="corner-panel" id="bottom-left-controls">
+                <button id="pass-btn" onclick="manualPassTurn()">Pass Turn</button>
+            </div>
+            <div class="corner-panel" id="bottom-right-controls"></div>
+        </div>
+    </div>
+    <div id="dice-panel" class="dice-panel" aria-label="Dice display">
+        <div id="dice-display" class="dice-display">
+            <div class="die-face" id="die-1" data-value="0"></div>
+            <div class="die-face" id="die-2" data-value="0"></div>
+        </div>
     </div>
     <div id="controls">
-		<div class="btn-group">
-		<span class="label">Leather:</span>
-		<button onclick="changeBoardLeather('crimson')">Crimson</button>
-		<button onclick="changeBoardLeather('navy')">Navy</button>
-		<button onclick="changeBoardLeather('green')">Green</button>
-		</div>
-
         <button id="roll-btn" onclick="userRollDice()">Roll Dice</button>
-        <div id="dice-display">- -</div>
-        <button id="pass-btn" onclick="manualPassTurn()">Pass Turn</button>
-        <div class="btn-group">
+        <div class="btn-group setup-group">
             <span class="label">AI Skill:</span>
             <button id="ai-easy" class="mode-btn" onclick="setDifficulty('easy')">Easy</button>
             <button id="ai-adv" class="mode-btn active" onclick="setDifficulty('advanced')">Adv</button>
             <button id="ai-exp" class="mode-btn" onclick="setDifficulty('expert')">Expert</button>
         </div>
-        <div class="btn-group">
-            <span class="label">Scale:</span>
-            <button onclick="adjustScaling(-0.05)">-</button>
-            <button onclick="adjustScaling(0.05)">+</button>
+        <div class="btn-group setup-group" id="leather-controls">
+            <span class="label">Leather:</span>
+            <button onclick="changeBoardLeather('crimson')">Crimson</button>
+            <button onclick="changeBoardLeather('navy')">Navy</button>
+            <button onclick="changeBoardLeather('green')">Green</button>
         </div>
     </div>
 </div>
@@ -106,6 +118,12 @@
     @media (orientation: portrait) and (max-width: 900px) { #rotation-overlay { display: flex; } #game-container { display: none; } }
     
     #game-container { display: flex; flex-direction: column; align-items: center; width: 100%; max-width: 1020px; gap: 10px; margin: 0 auto; }
+    #board-shell { position: relative; width: 100%; }
+    #control-overlay { position: absolute; inset: 0; pointer-events: none; }
+    .corner-panel { position: absolute; z-index: 3; pointer-events: auto; display: flex; align-items: center; gap: 6px; background: rgba(31, 32, 35, 0.88); border: 1px solid rgba(255,255,255,0.08); border-radius: 8px; padding: 8px 10px; box-shadow: 0 8px 18px rgba(0,0,0,0.45); }
+    #top-left-controls { top: 10px; left: 10px; }
+    #bottom-left-controls { bottom: 10px; left: 10px; }
+    #bottom-right-controls { bottom: 10px; right: 10px; }
 </style>
 <style>
     /* Heavy solid mahogany cabinet structure wrap framework */
@@ -167,15 +185,32 @@
 </style>
 <style>
     #info-text { font-size: 16px; font-weight: bold; background: #18191a; color: #dfb26c; padding: 12px 20px; border-radius: 6px; border-left: 5px solid #007bff; width: 100%; box-sizing: border-box; text-align: left; margin-bottom: 2px; box-shadow: inset 0 2px 4px rgba(0,0,0,0.5); text-shadow: 0 1px 2px rgba(0,0,0,0.8); }
-    #controls { display: flex; gap: 15px; align-items: center; justify-content: flex-start; background: #1f2023; padding: 12px 30px; border-radius: 8px; width: 100%; box-sizing: border-box; flex-wrap: wrap; box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1); border: 1px solid #151617; }
+    #dice-panel { width: 100%; display: flex; justify-content: flex-start; margin-top: 4px; }
+    .dice-panel { background: #1f2023; padding: 8px 12px; border-radius: 8px; border: 1px solid #151617; box-shadow: 0 8px 16px rgba(0,0,0,0.45); }
+    #controls { display: flex; gap: 12px; align-items: center; justify-content: flex-start; background: #1f2023; padding: 12px 30px; border-radius: 8px; width: 100%; box-sizing: border-box; flex-wrap: wrap; box-shadow: 0 10px 20px rgba(0,0,0,0.5), inset 0 1px 0 rgba(255,255,255,0.1); border: 1px solid #151617; }
     .btn-group { display: flex; align-items: center; gap: 6px; }
+    #roll-btn { margin-right: 4px; }
     .label { font-size: 12px; font-weight: bold; color: #8a8d91; text-transform: uppercase; letter-spacing: 1px; }
     
     button { padding: 9px 18px; font-size: 13px; cursor: pointer; border: 1px solid #111; background: linear-gradient(#3a3d40, #222426); color: #e4e6eb; border-radius: 4px; font-weight: bold; box-shadow: 0 2px 4px rgba(0,0,0,0.3); font-family: 'Georgia', serif; }
     button:hover:not(:disabled) { background: linear-gradient(#4a4d52, #2d3033); color: #fff; }
     button:disabled { opacity: 0.3; cursor: not-allowed; }
     #pass-btn { background: linear-gradient(#c0392b, #962d22); display: none; border-color: #7d251c; }
-    #dice-display { font-size: 20px; font-weight: bold; letter-spacing: 8px; color: #ffcc00; min-width: 50px; text-align: center; text-shadow: 0 0 6px rgba(255,204,0,0.4); }
+    #dice-display { display: flex; gap: 8px; align-items: center; }
+    .die-face { width: 34px; height: 34px; border-radius: 8px; background: linear-gradient(145deg, #fffbe5, #f2d98a); border: 1px solid #b78d35; box-shadow: inset 0 1px 0 rgba(255,255,255,0.9), 0 3px 6px rgba(0,0,0,0.35); display: grid; grid-template-columns: repeat(3, 1fr); grid-template-rows: repeat(3, 1fr); padding: 4px; box-sizing: border-box; transform: rotate(0deg); }
+    .die-face.rolling { animation: shake 0.18s linear infinite; }
+    .pip { width: 5px; height: 5px; border-radius: 50%; background: #2a1c07; justify-self: center; align-self: center; box-shadow: inset 0 1px 1px rgba(255,255,255,0.3); }
+    .pip-0 { grid-column: 1; grid-row: 1; }
+    .pip-1 { grid-column: 3; grid-row: 1; }
+    .pip-2 { grid-column: 2; grid-row: 1; }
+    .pip-3 { grid-column: 1; grid-row: 2; }
+    .pip-4 { grid-column: 2; grid-row: 2; }
+    .pip-5 { grid-column: 3; grid-row: 2; }
+    .pip-6 { grid-column: 1; grid-row: 3; }
+    .pip-7 { grid-column: 3; grid-row: 3; }
+    .pip-8 { grid-column: 2; grid-row: 3; }
+    @keyframes shake { 0%,100% { transform: rotate(-4deg) translateY(0); } 50% { transform: rotate(4deg) translateY(-1px); } }
+    #leather-controls button { padding: 6px 8px; font-size: 11px; }
     .mode-btn { background: #1a1b1c; border: 1px solid #3a3d40; color: #a8aaad; }
     .mode-btn.active { background: linear-gradient(#27ae60, #1e8449); color: white; border-color: #196f3d; text-shadow: 0 1px 1px rgba(0,0,0,0.3); }
     
@@ -238,15 +273,49 @@
         }
     }
 
+    const pipPositions = {
+        1: [4],
+        2: [0, 8],
+        3: [0, 4, 8],
+        4: [0, 2, 6, 8],
+        5: [0, 2, 4, 6, 8],
+        6: [0, 2, 3, 5, 6, 8]
+    };
+
+    function renderDiceFaces(d1, d2) {
+        const die1 = document.getElementById('die-1');
+        const die2 = document.getElementById('die-2');
+        die1.innerHTML = (pipPositions[d1] || []).map(pos => `<span class="pip pip-${pos}"></span>`).join('');
+        die2.innerHTML = (pipPositions[d2] || []).map(pos => `<span class="pip pip-${pos}"></span>`).join('');
+        die1.dataset.value = String(d1 || 0);
+        die2.dataset.value = String(d2 || 0);
+    }
+
+    function animateDiceRoll(callback) {
+        const die1 = document.getElementById('die-1');
+        const die2 = document.getElementById('die-2');
+        die1.classList.add('rolling'); die2.classList.add('rolling');
+        setTimeout(() => {
+            die1.classList.remove('rolling'); die2.classList.remove('rolling');
+            const d1 = Math.floor(Math.random() * 6) + 1;
+            const d2 = Math.floor(Math.random() * 6) + 1;
+            renderDiceFaces(d1, d2);
+            callback(d1, d2);
+        }, 350);
+    }
+
     function userRollDice() { if (currentPlayer === 1 && remainingRolls.length === 0) rollDice(); }
     function rollDice() {
-        let d1 = Math.floor(Math.random() * 6) + 1, d2 = Math.floor(Math.random() * 6) + 1;
-        remainingRolls = (d1 === d2) ? [d1, d1, d1, d1] : [d1, d2];
-        document.getElementById('dice-display').innerText = d1 + " " + d2;
         document.getElementById('roll-btn').disabled = true;
-        startPassTimer(); 
-        updateTurnText(); 
-        checkValidTurns();
+        animateDiceRoll((d1, d2) => {
+            remainingRolls = (d1 === d2) ? [d1, d1, d1, d1] : [d1, d2];
+            document.querySelectorAll('.setup-group').forEach(el => el.style.display = 'none');
+            document.getElementById('top-left-controls').style.display = 'none';
+            document.getElementById('bottom-right-controls').style.display = 'none';
+            startPassTimer();
+            updateTurnText();
+            checkValidTurns();
+        });
     }
     function startPassTimer() { cancelPassTimer(); if (currentPlayer === 1) { passTimer = setTimeout(() => { document.getElementById('pass-btn').style.display = 'block'; }, 30000); } }
     function cancelPassTimer() { if (passTimer) { clearTimeout(passTimer); passTimer = null; } document.getElementById('pass-btn').style.display = 'none'; }
@@ -286,7 +355,10 @@
         scoreLogged = false;
         document.getElementById('win-modal').style.display = 'none';
         document.getElementById('roll-btn').disabled = false;
-        document.getElementById('dice-display').innerText = '- -';
+        renderDiceFaces(0, 0);
+        document.querySelectorAll('.setup-group').forEach(el => el.style.display = 'flex');
+        document.getElementById('top-left-controls').style.display = 'flex';
+        document.getElementById('bottom-right-controls').style.display = 'flex';
         cancelPassTimer(); updateTurnText(); renderBoard();
     }
     
@@ -431,7 +503,7 @@
 
     function switchTurn() {
         currentPlayer = currentPlayer === 1 ? 2 : 1; remainingRolls = []; clearHighlights(); cancelPassTimer();
-        if (currentPlayer === 1) { document.getElementById('roll-btn').disabled = false; document.getElementById('dice-display').innerText = '- -'; updateTurnText(); }
+        if (currentPlayer === 1) { document.getElementById('roll-btn').disabled = false; renderDiceFaces(0, 0); updateTurnText(); }
         else { document.getElementById('roll-btn').disabled = true; updateTurnText(); setTimeout(rollDice, 1200); }
     }
     
@@ -462,6 +534,7 @@
         } else { isComputerMoving = false; switchTurn(); }
     }
     renderBoard();
+    renderDiceFaces(0, 0);
 </script>
 </body>
 </html>
