@@ -1,9 +1,9 @@
-html<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
-    <title>Clubs & Diamonds - Ultra Mobile Optimized</title>
+    <title>Clubs & Diamonds</title>
     <style>
         :root {
             --bg-color: #1a2e22;
@@ -16,7 +16,7 @@ html<!DOCTYPE html>
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
         body { background-color: var(--bg-color); color: var(--text-light); height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: fixed; width: 100%; height: 100%; }
         header { background: rgba(0, 0, 0, 0.4); padding: 6px; text-align: center; border-bottom: 2px solid var(--accent-gold); flex-shrink: 0; display: flex; justify-content: center; align-items: center; gap: 15px; }
-        h1 { font-size: 1.1rem; color: var(--accent-gold); letter-spacing: 1px; display: inline-block; }
+        h1 { font-size: 1.1rem; color: var(--accent gold); letter-spacing: 1px; display: inline-block; }
         .rules-btn { background: none; border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 2px 8px; font-size: 0.75rem; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .main-container { display: flex; flex: 1; height: calc(100% - 35px); overflow: hidden; position: relative; width: 100%; min-height: 0; }
         .sidebar { width: 240px; background: rgba(0, 0, 0, 0.4); border-right: 1px solid rgba(255,255,255,0.1); padding: 12px; overflow-y: auto; font-size: 0.75rem; flex-shrink: 0; }
@@ -24,35 +24,34 @@ html<!DOCTYPE html>
         .sidebar li { margin-bottom: 4px; line-height: 1.2; }
         
         @media (max-width: 768px) { 
-            .sidebar { display: none; } /* Hides desktop sidebar on mobile to save vertical room */
+            .sidebar { display: none; }
         }
         
-        .game-board { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; height: 100%; overflow: hidden; min-height: 0; }
-        .scoreboard { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; background: rgba(0,0,0,0.5); padding: 4px; border-radius: 6px; flex-shrink: 0; }
+        .game-board { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding: 4px; height: 100%; overflow: hidden; min-height: 0; gap: 4px; }
+        .scoreboard { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; background: rgba(0,0,0,0.5); padding: 4px; border-radius: 6px; flex-shrink: 0; width: 100%; }
         .player-score { text-align: center; padding: 2px 4px; border-radius: 4px; min-width: 60px; background: rgba(255,255,255,0.05); font-size: 0.7rem; }
         .player-score.active { background: rgba(255, 215, 0, 0.2); border: 1px solid var(--accent-gold); }
-        .score-val { font-size: 0.9rem; font-weight: bold; display: block; color: var(--accent-gold); }        
-        .arena { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; flex: 1; min-height: 0; padding: 2px 0; }
-        .trick-zone { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 80px; width: 100%; background: rgba(255,255,255,0.03); border-radius: 8px; max-width: 500px; border: 1px dashed rgba(255,255,255,0.1); padding: 6px; flex: 1; max-height: 120px; }
-        @media (max-width: 768px) { .trick-zone { max-height: 95px; min-height: 75px; } }
+        .score-val { font-size: 0.9rem; font-weight: bold; display: block; color: var(--accent-gold); }
+        .arena { display: flex; flex-direction: column; align-items: center; justify-content: flex-start; flex-shrink: 0; width: 100%; gap: 4px; }
+        .trick-zone { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 75px; width: 100%; background: rgba(255,255,255,0.03); border-radius: 8px; max-width: 500px; border: 1px dashed rgba(255,255,255,0.1); padding: 6px; max-height: 110px; }
         .played-card-container { display: flex; flex-direction: column; align-items: center; gap: 1px; }
         .player-label { font-size: 0.55rem; opacity: 0.8; text-align: center; max-width: 45px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .log-box { width: 100%; max-width: 450px; height: 42px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 4px; overflow-y: auto; font-family: monospace; font-size: 0.6rem; margin-top: 2px; flex-shrink: 0; }
-        .player-area { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; flex-shrink: 0; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 6px; margin-bottom: env(safe-area-inset-bottom, 10px); }
-        .hand-title { font-size: 0.7rem; color: var(--accent-gold); }
-        .hand { display: flex; gap: 3px; justify-content: center; flex-wrap: wrap; max-width: 100%; min-height: 65px; max-height: 105px; overflow-y: auto; padding: 2px; }
+        .log-box { width: 100%; max-width: 450px; height: 42px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 4px; overflow-y: auto; font-family: monospace; font-size: 0.6rem; flex-shrink: 0; }
+        .player-area { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; flex: 1; min-height: 0; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 6px; overflow: hidden; margin-bottom: env(safe-area-inset-bottom, 10px); }
+        .hand-title { font-size: 0.75rem; color: var(--accent-gold); font-weight: bold; flex-shrink: 0; }
+        .hand { display: flex; gap: 6px 4px; justify-content: center; flex-wrap: wrap; content-visibility: auto; width: 100%; flex: 1; overflow-y: auto; padding: 2px; align-content: flex-start; }
         
-        .card { width: 42px; height: 62px; background: var(--card-white); border-radius: 3px; display: flex; flex-direction: column; justify-content: space-between; padding: 2px; color: #000; font-weight: bold; cursor: pointer; user-select: none; box-shadow: 0 1px 3px rgba(0,0,0,0.3); transition: transform 0.1s; font-size: 0.6rem; }
-        @media (min-height: 650px) { .card { width: 46px; height: 68px; font-size: 0.7rem; } .hand { min-height: 72px; } }
+        .card { width: 44px; height: 66px; background: var(--card-white); border-radius: 4px; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; color: #000; font-weight: bold; cursor: pointer; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: transform 0.1s; font-size: 0.65rem; flex-shrink: 0; }
+        @media (min-height: 650px) { .card { width: 48px; height: 72px; font-size: 0.75rem; } }
         .card:active { transform: scale(0.95); }
-        .card.disabled { pointer-events: none; opacity: 0.4; transform: none; }
+        .card.disabled { pointer-events: none; opacity: 0.35; transform: none; }
         .card.suit-clubs { color: var(--club-color); }
         .card.suit-diamonds { color: var(--diamond-color); }
         .card.suit-hearts { color: #d12c2c; }
         .card.suit-spades { color: #1c1c1c; }
         .card-top, .card-bottom { display: flex; justify-content: space-between; line-height: 1; }
         .card-bottom { transform: rotate(180deg); }
-        .card-suit-center { font-size: 1.1rem; align-self: center; line-height: 1; }
+        .card-suit-center { font-size: 1.2rem; align-self: center; line-height: 1; }
         .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.9); display: flex; justify-content: center; align-items: center; z-index: 1000; padding: 15px; }
         .modal-content { background: #2a4436; padding: 15px; border-radius: 12px; border: 2px solid var(--accent-gold); text-align: center; width: 100%; max-width: 360px; box-shadow: 0 4px 15px rgba(0,0,0,0.5); overflow-y: auto; max-height: 90vh; }
         .modal h2 { color: var(--accent-gold); margin-bottom: 6px; font-size: 1.1rem; }
@@ -98,7 +97,6 @@ html<!DOCTYPE html>
         </main>
     </div>
     
-    <!-- Mobile Pop-Up Rules Overlay Window -->
     <div class="modal hidden" id="rules-modal" onclick="this.classList.add('hidden')">
         <div class="modal-content" onclick="event.stopPropagation()">
             <h2>Tactical Rules</h2><br>
@@ -122,7 +120,7 @@ html<!DOCTYPE html>
         </div>
     </div>
     <div class="modal hidden" id="end-modal">
-    <div class="modal-content"><h2 id="end-title">Game Over!</h2><p id="end-desc" style="text-align:center;"></p><button id="btn-restart">Play Again</button></div></div>
+        <div class="modal-content"><h2 id="end-title">Game Over!</h2><p id="end-desc" style="text-align:center;"></p><button id="btn-restart">Play Again</button></div></div>
     <script>
         let audioCtx = null;
         function initAudioEngine() {
@@ -172,7 +170,7 @@ html<!DOCTYPE html>
             });
         }
         function initGame() {
-            logMessage(`<b>Match Dealt! Point Limit: 50 | Rule: MUST Follow Suit if able</b>`);
+            logMessage(`<b>Match Dealt! Point Limit: 50 | MUST Follow Suit if able</b>`);
             createDeck(); shuffleDeck(); dealCards(); updateScoreboard();
             turnIndex = (currentDealer + 1) % players.length;
             clearTrickZone(); currentTrick = []; dominantSuit = null; highlightActivePlayer();
@@ -217,12 +215,11 @@ html<!DOCTYPE html>
                     const dCard = currentTrick.find(t => t.card.suit === 'diamonds'); currentWinningCardValue = dCard.card.value; winningCardSuit = "diamonds";
                 } else {
                     const clubsInTrick = currentTrick.filter(t => t.card.suit === 'clubs').sort((a,b) => b.card.value - a.card.value);
-                    if (clubsInTrick.length > 0) { currentWinningCardValue = clubsInTrick[0].card.value; winningCardSuit = "clubs"; } else {
+                    if (clubsInTrick.length > 0) { currentWinningCardValue = clubsInTrick.card.value; winningCardSuit = "clubs"; } else {
                         const domsInTrick = currentTrick.filter(t => t.card.suit === dominantSuit).sort((a,b) => b.card.value - a.card.value);
-                        if (domsInTrick.length > 0) { currentWinningCardValue = domsInTrick[0].card.value; winningCardSuit = dominantSuit; }
+                        if (domsInTrick.length > 0) { currentWinningCardValue = domsInTrick.card.value; winningCardSuit = dominantSuit; }
                     }
                 }
-                
                 let winningMoves = [];
                 legalCardIndices.forEach(idx => {
                     const c = ai.hand[idx];
@@ -230,10 +227,8 @@ html<!DOCTYPE html>
                     else if (c.suit === 'clubs' && winningCardSuit !== "diamonds") { if (winningCardSuit !== "clubs" || c.value > currentWinningCardValue) { winningMoves.push({ index: idx, priority: 2 }); } } 
                     else if (c.suit === dominantSuit && winningCardSuit === dominantSuit && c.value > currentWinningCardValue) { winningMoves.push({ index: idx, priority: 1 }); }
                 });
-                
                 if (winningMoves.length > 0) {
-                    winningMoves.sort((a, b) => b.priority - a.priority); 
-                    chosenIdx = winningMoves[0].index; // FIX: Pull index from the first element of sorted array
+                    winningMoves.sort((a, b) => b.priority - a.priority); chosenIdx = winningMoves[0].index;
                 } else {
                     let lowestVal = 999;
                     legalCardIndices.forEach(idx => { const c = ai.hand[idx]; if (c.value < lowestVal) { lowestVal = c.value; chosenIdx = idx; } });
@@ -252,7 +247,7 @@ html<!DOCTYPE html>
         function highlightActivePlayer() { players.forEach(p => document.getElementById(`score-p${p.id}`).classList.remove('active')); document.getElementById(`score-p${turnIndex}`).classList.add('active'); }
         function updateScoreboard() { players.forEach(p => document.getElementById(`val-p${p.id}`).innerText = p.score); }
         function logMessage(msg) { logBox.innerHTML += `<div>${msg}</div>`; logBox.scrollTop = logBox.scrollHeight; }
-        function playHumanCard(i) { const [cardObj] = players[0].hand.splice(i, 1); executeCardPlay(players[0], cardObj); } // FIX: Unwraps human card object arrays correctly
+        function playHumanCard(i) { const [cardObj] = players[0].hand.splice(i, 1); executeCardPlay(players[0], cardObj); }
         function executeCardPlay(player, card) {
             if (currentTrick.length === 0) { dominantSuit = card.suit; clearTrickZone(); logMessage(`${player.name} leads <b>${card.rank}${card.symbol}</b>.`); }
             else { logMessage(`${player.name} plays <b>${card.rank}${card.symbol}</b>.`); }
