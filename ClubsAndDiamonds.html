@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Clubs & Diamonds - Audio Synth Edition</title>
+    <title>Clubs & Diamonds</title>
     <style>
         :root {
             --bg-color: #1a2e22;
@@ -61,9 +61,10 @@
         <aside class="sidebar">
             <h2>Tactical Rules</h2>
             <ul>
-                <li>• Any suit may be played at any time. Suit does not need to be followed.</li>
-                <li>• The suit that leads is the highest suit (except Diamonds and Clubs).</li>
-                <li>• Clubs are always trump.</li>
+                <li>• <strong>MUST Follow Suit:</strong> If you hold a card matching the leading suit, you are forced to play it.</li>
+                <li>• <strong>Void Discards:</strong> If you are completely void of the leading suit, you may play ANY card (Clubs to trump, Diamonds to steal/points).</li>
+                <li>• <strong>Dominant Suit:</strong> The suit that leads is the highest suit (except Diamonds and Clubs).</li>
+                <li>• Clubs are trump.</li>
                 <li><strong>Scoring Conditions:</strong>
                     <ul>
                         <li>• Each Diamond = 1 Point</li>
@@ -83,208 +84,123 @@
     </div>
     <div class="modal" id="start-modal"><div class="modal-content"><h2>Clubs & Diamonds</h2><p>Choose total players (You + AI Bots):</p><select id="player-select"><option value="3">3 Players</option><option value="4" selected>4 Players</option><option value="5">5 Players</option><option value="6">6 Players</option><option value="7">7 Players</option></select><br><button id="btn-start">Start Game</button></div></div>
     <div class="modal hidden" id="end-modal"><div class="modal-content"><h2 id="end-title">Game Over!</h2><p id="end-desc"></p><button id="btn-restart">Play Again</button></div></div>
-
     <script>
-        // Web Audio API Synth Engine
         let audioCtx = null;
-        
         function initAudioEngine() {
-            if (!audioCtx) {
-                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
-            }
-            if (audioCtx.state === 'suspended') {
-                audioCtx.resume();
-            }
+            if (!audioCtx) { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+            if (audioCtx.state === 'suspended') { audioCtx.resume(); }
         }
-
         function playLoneDiamondSound() {
             if (!audioCtx) return;
-            let osc1 = audioCtx.createOscillator(), osc2 = audioCtx.createOscillator();
-            let gainNode = audioCtx.createGain();
-            
-            osc1.type = 'triangle'; osc1.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
-            osc1.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.08); // E6
-            
-            osc2.type = 'sine'; osc2.frequency.setValueAtTime(1046.5, audioCtx.currentTime + 0.04); // C6
-            
-            gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
-            
-            osc1.connect(gainNode); osc2.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            osc1.start(); osc2.start();
-            osc1.stop(audioCtx.currentTime + 0.3); osc2.stop(audioCtx.currentTime + 0.3);
+            let osc1 = audioCtx.createOscillator(), osc2 = audioCtx.createOscillator(), gainNode = audioCtx.createGain();
+            osc1.type = 'triangle'; osc1.frequency.setValueAtTime(880, audioCtx.currentTime);
+            osc1.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.08);
+            osc2.type = 'sine'; osc2.frequency.setValueAtTime(1046.5, audioCtx.currentTime + 0.04);
+            gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+            osc1.connect(gainNode); osc2.connect(gainNode); gainNode.connect(audioCtx.destination);
+            osc1.start(); osc2.start(); osc1.stop(audioCtx.currentTime + 0.3); osc2.stop(audioCtx.currentTime + 0.3);
         }
-
         function playSabotageSound() {
             if (!audioCtx) return;
             let osc = audioCtx.createOscillator(), gainNode = audioCtx.createGain();
-            
-            osc.type = 'sawtooth';
-            osc.frequency.setValueAtTime(180, audioCtx.currentTime);
-            osc.frequency.linearRampToValueAtTime(90, audioCtx.currentTime + 0.4);
-            
-            gainNode.gain.setValueAtTime(0.12, audioCtx.currentTime);
-            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
-            
-            osc.connect(gainNode);
-            gainNode.connect(audioCtx.destination);
-            osc.start();
-            osc.stop(audioCtx.currentTime + 0.4);
+            osc.type = 'sawtooth'; osc.frequency.setValueAtTime(180, audioCtx.currentTime); osc.frequency.linearRampToValueAtTime(90, audioCtx.currentTime + 0.4);
+            gainNode.gain.setValueAtTime(0.12, audioCtx.currentTime); gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+            osc.connect(gainNode); gainNode.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.4);
         }
-
         const SUITS = [{ name:'clubs', symbol:'♣' }, { name:'diamonds', symbol:'♦' }, { name:'hearts', symbol:'♥' }, { name:'spades', symbol:'♠' }];
         const RANKS = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
         const RANK_VALUES = { '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13, 'A':14 };
-
         let deck = [], kitty = [], currentTrick = [], lastTrickDiamonds = [], players = [];
         let currentDealer = 0, turnIndex = 0, dominantSuit = null, numPlayers = 4;
-
         const startModal = document.getElementById('start-modal'), endModal = document.getElementById('end-modal');
         const btnStart = document.getElementById('btn-start'), btnRestart = document.getElementById('btn-restart');
         const playerSelect = document.getElementById('player-select'), scoreboardContainer = document.getElementById('scoreboard-container');
         const playerHandDiv = document.getElementById('player-hand'), trickZoneDiv = document.getElementById('trick-zone'), logBox = document.getElementById('log-box');
-
-        btnStart.addEventListener('click', () => {
-            initAudioEngine(); // Explicit user-gesture check for mobile browsers
-            numPlayers = parseInt(playerSelect.value);
-            startModal.classList.add('hidden');
-            setupPlayers();
-            initGame();
-        });
-
-        btnRestart.addEventListener('click', () => {
-            initAudioEngine();
-            endModal.classList.add('hidden');
-            players.forEach(p => p.score = 0);
-            initGame();
-        });
+        btnStart.addEventListener('click', () => { initAudioEngine(); numPlayers = parseInt(playerSelect.value); startModal.classList.add('hidden'); setupPlayers(); initGame(); });
+        btnRestart.addEventListener('click', () => { initAudioEngine(); endModal.classList.add('hidden'); players.forEach(p => p.score = 0); initGame(); });
         function setupPlayers() {
             players = [{ id: 0, name: 'You', hand: [], score: 0 }];
-            for (let i = 2; i <= numPlayers; i++) {
-                players.push({ id: i - 1, name: `AI ${i}`, hand: [], score: 0 });
-            }
+            for (let i = 2; i <= numPlayers; i++) { players.push({ id: i - 1, name: `AI ${i}`, hand: [], score: 0 }); }
             buildScoreboardUI();
         }
-
         function buildScoreboardUI() {
             scoreboardContainer.innerHTML = '';
             players.forEach(p => {
-                const div = document.createElement('div');
-                div.className = 'player-score';
-                div.id = `score-p${p.id}`;
+                const div = document.createElement('div'); div.className = 'player-score'; div.id = `score-p${p.id}`;
                 div.innerHTML = `<div>${p.name}</div><span class="score-val" id="val-p${p.id}">0</span>`;
                 scoreboardContainer.appendChild(div);
             });
         }
-
         function initGame() {
-            logMessage(`<b>Match Dealt! Point Limit: 50</b>`);
+            logMessage(`<b>Match Dealt! Point Limit: 50 | Rule: MUST Follow Suit if able</b>`);
             createDeck(); shuffleDeck(); dealCards(); updateScoreboard();
             turnIndex = (currentDealer + 1) % players.length;
-            clearTrickZone(); currentTrick = []; dominantSuit = null;
-            highlightActivePlayer();
+            clearTrickZone(); currentTrick = []; dominantSuit = null; highlightActivePlayer();
             if (turnIndex !== 0) { setTimeout(executeAiTurn, 500); } else { logMessage("Your turn to lead!"); renderPlayerHand(true); }
         }
-
-        function createDeck() {
-            deck = [];
-            SUITS.forEach(s => { RANKS.forEach(r => { deck.push({ suit: s.name, symbol: s.symbol, rank: r, value: RANK_VALUES[r] }); }); });
-        }
-
-        function shuffleDeck() {
-            for (let i = deck.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
-                [deck[i], deck[j]] = [deck[j], deck[i]];
-            }
-        }
-
+        function createDeck() { deck = []; SUITS.forEach(s => { RANKS.forEach(r => { deck.push({ suit: s.name, symbol: s.symbol, rank: r, value: RANK_VALUES[r] }); }); }); }
+        function shuffleDeck() { for (let i = deck.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [deck[i], deck[j]] = [deck[j], deck[i]]; } }
         function dealCards() {
             players.forEach(p => p.hand = []); kitty = [];
             let maxDealtCards = Math.floor(52 / numPlayers) * numPlayers;
             let idx = 0;
-            while(idx < maxDealtCards) {
-                players[idx % numPlayers].hand.push(deck[idx++]);
-            }
+            while(idx < maxDealtCards) { players[idx % numPlayers].hand.push(deck[idx++]); }
             while(idx < 52) { kitty.push(deck[idx++]); }
-            
-            players.hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
+            players[0].hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
         }
-
         function renderPlayerHand(active) {
             playerHandDiv.innerHTML = '';
-            players.hand.forEach((card, i) => {
-                const el = document.createElement('div');
-                el.className = `card suit-${card.suit}`;
-                if (!active) el.classList.add('disabled');
+            const hasMatchingSuit = players[0].hand.some(c => c.suit === dominantSuit);
+            players[0].hand.forEach((card, i) => {
+                const el = document.createElement('div'); el.className = `card suit-${card.suit}`; 
+                let isCardDisabled = !active;
+                if (active && dominantSuit && hasMatchingSuit && card.suit !== dominantSuit) { isCardDisabled = true; }
+                if (isCardDisabled) el.classList.add('disabled');
                 el.innerHTML = `<div class="card-top"><span>${card.rank}</span><span>${card.symbol}</span></div><div class="card-suit-center">${card.symbol}</div><div class="card-bottom"><span>${card.rank}</span><span>${card.symbol}</span></div>`;
-                el.addEventListener('click', () => { if (active) playHumanCard(i); });
-                playerHandDiv.appendChild(el);
+                el.addEventListener('click', () => { if (!isCardDisabled) playHumanCard(i); }); playerHandDiv.appendChild(el);
             });
         }
-
         function executeAiTurn() {
-            const ai = players[turnIndex];
-            let chosenIdx = 0;
-
+            const ai = players[turnIndex]; let chosenIdx = 0;
             if (!dominantSuit) {
-                const safeCard = ai.hand.findIndex(c => c.suit !== 'diamonds' && c.suit !== 'clubs');
-                if (safeCard !== -1) chosenIdx = safeCard;
+                const safeCard = ai.hand.findIndex(c => c.suit !== 'diamonds' && c.suit !== 'clubs'); 
+                chosenIdx = (safeCard !== -1) ? safeCard : 0;
             } else {
+                let legalCardIndices = [];
+                ai.hand.forEach((c, idx) => { if (c.suit === dominantSuit) legalCardIndices.push(idx); });
+                const mustFollowSuit = (legalCardIndices.length > 0);
+                if (!mustFollowSuit) { ai.hand.forEach((_, idx) => legalCardIndices.push(idx)); }
+                
                 const diamondsInTrick = currentTrick.filter(t => t.card.suit === 'diamonds').length;
-                let currentWinningCardValue = -1;
-                let winningCardSuit = "";
-
+                let currentWinningCardValue = -1; let winningCardSuit = "";
                 if (diamondsInTrick === 1) {
-                    const dCard = currentTrick.find(t => t.card.suit === 'diamonds');
-                    currentWinningCardValue = dCard.card.value;
-                    winningCardSuit = "diamonds";
+                    const dCard = currentTrick.find(t => t.card.suit === 'diamonds'); currentWinningCardValue = dCard.card.value; winningCardSuit = "diamonds";
                 } else {
                     const clubsInTrick = currentTrick.filter(t => t.card.suit === 'clubs').sort((a,b) => b.card.value - a.card.value);
-                    if (clubsInTrick.length > 0) {
-                        currentWinningCardValue = clubsInTrick.card.value;
-                        winningCardSuit = "clubs";
-                    } else {
+                    if (clubsInTrick.length > 0) { currentWinningCardValue = clubsInTrick[0].card.value; winningCardSuit = "clubs"; } else {
                         const domsInTrick = currentTrick.filter(t => t.card.suit === dominantSuit).sort((a,b) => b.card.value - a.card.value);
-                        if (domsInTrick.length > 0) {
-                            currentWinningCardValue = domsInTrick.card.value;
-                            winningCardSuit = dominantSuit;
-                        }
+                        if (domsInTrick.length > 0) { currentWinningCardValue = domsInTrick[0].card.value; winningCardSuit = dominantSuit; }
                     }
                 }
-
-                let winningAssetIndices = [];
-                ai.hand.forEach((c, idx) => {
-                    if (c.suit === 'diamonds') {
-                        if (diamondsInTrick === 0) winningAssetIndices.push(idx);
-                    } else if (c.suit === 'clubs') {
-                        if (winningCardSuit !== "diamonds") {
-                            if (winningCardSuit !== "clubs" || c.value > currentWinningCardValue) {
-                                winningAssetIndices.push(idx);
-                            }
-                        }
-                    }
+                
+                let winningMoves = [];
+                legalCardIndices.forEach(idx => {
+                    const c = ai.hand[idx];
+                    if (c.suit === 'diamonds' && diamondsInTrick === 0) { winningMoves.push({ index: idx, priority: 3 }); } 
+                    else if (c.suit === 'clubs' && winningCardSuit !== "diamonds") { if (winningCardSuit !== "clubs" || c.value > currentWinningCardValue) { winningMoves.push({ index: idx, priority: 2 }); } } 
+                    else if (c.suit === dominantSuit && winningCardSuit === dominantSuit && c.value > currentWinningCardValue) { winningMoves.push({ index: idx, priority: 1 }); }
                 });
-
-                let allowedIndices = [];
-                ai.hand.forEach((c, idx) => {
-                    if (c.suit !== 'diamonds' && c.suit !== 'clubs') {
-                        allowedIndices.push(idx);
-                    } else {
-                        if (winningAssetIndices.includes(idx)) {
-                            allowedIndices.push(idx);
-                        }
-                    }
-                });
-
-                if (allowedIndices.length === 0) {
-                    allowedIndices = ai.hand.map((_, idx) => idx);
+                
+                if (winningMoves.length > 0) {
+                    winningMoves.sort((a, b) => b.priority - a.priority); 
+                    chosenIdx = winningMoves[0].index; // FIX: Pull index from the first element of sorted array
+                } else {
+                    let lowestVal = 999;
+                    legalCardIndices.forEach(idx => { const c = ai.hand[idx]; if (c.value < lowestVal) { lowestVal = c.value; chosenIdx = idx; } });
                 }
-
-                chosenIdx = allowedIndices;
             }
-
-            executeCardPlay(ai, ai.hand.splice(chosenIdx, 1));
+            const [cardObj] = ai.hand.splice(chosenIdx, 1); executeCardPlay(ai, cardObj);
         }
         function renderTrickCard(pObj, card) {
             const container = document.createElement('div'); container.className = 'played-card-container';
@@ -293,108 +209,53 @@
             const lbl = document.createElement('div'); lbl.className = 'player-label'; lbl.innerText = pObj.name;
             container.appendChild(el); container.appendChild(lbl); trickZoneDiv.appendChild(container);
         }
-
         function clearTrickZone() { trickZoneDiv.innerHTML = '<div style="opacity:0.3; font-size:0.75rem;">Trick Area</div>'; }
         function highlightActivePlayer() { players.forEach(p => document.getElementById(`score-p${p.id}`).classList.remove('active')); document.getElementById(`score-p${turnIndex}`).classList.add('active'); }
         function updateScoreboard() { players.forEach(p => document.getElementById(`val-p${p.id}`).innerText = p.score); }
         function logMessage(msg) { logBox.innerHTML += `<div>${msg}</div>`; logBox.scrollTop = logBox.scrollHeight; }
-        function playHumanCard(i) { executeCardPlay(players, players.hand.splice(i, 1)); }
-
+        function playHumanCard(i) { const [cardObj] = players[0].hand.splice(i, 1); executeCardPlay(players[0], cardObj); } // FIX: Unwraps human card object arrays correctly
         function executeCardPlay(player, card) {
             if (currentTrick.length === 0) { dominantSuit = card.suit; clearTrickZone(); logMessage(`${player.name} leads <b>${card.rank}${card.symbol}</b>.`); }
             else { logMessage(`${player.name} plays <b>${card.rank}${card.symbol}</b>.`); }
-            currentTrick.push({ playerId: player.id, card: card });
-            renderTrickCard(player, card);
-            turnIndex = (turnIndex + 1) % players.length;
-            highlightActivePlayer();
-            if (currentTrick.length < players.length) {
-                if (turnIndex === 0) renderPlayerHand(true);
-                else { renderPlayerHand(false); setTimeout(executeAiTurn, 500); }
-            } else { renderPlayerHand(false); setTimeout(evaluateTrick, 800); }
+            currentTrick.push({ playerId: player.id, card: card }); renderTrickCard(player, card);
+            turnIndex = (turnIndex + 1) % players.length; highlightActivePlayer();
+            if (currentTrick.length < players.length) { if (turnIndex === 0) renderPlayerHand(true); else { renderPlayerHand(false); setTimeout(executeAiTurn, 500); } } 
+            else { renderPlayerHand(false); setTimeout(evaluateTrick, 800); }
         }
-
         function evaluateTrick() {
-            let winnerId = null, explanation = "";
-            const diamonds = currentTrick.filter(t => t.card.suit === 'diamonds');
-            const clubs = currentTrick.filter(t => t.card.suit === 'clubs');
-            const dominant = currentTrick.filter(t => t.card.suit === dominantSuit);
-
+            let winnerId = null, explanation = ""; const diamonds = currentTrick.filter(t => t.card.suit === 'diamonds'), clubs = currentTrick.filter(t => t.card.suit === 'clubs'), dominant = currentTrick.filter(t => t.card.suit === dominantSuit);
             lastTrickDiamonds = diamonds.map(d => ({ playerId: d.playerId, value: d.card.value }));
-
-            if (diamonds.length === 1) {
-                winnerId = diamonds.playerId;
-                explanation = `Lone Diamond wins!`;
-                playLoneDiamondSound(); // AUDIO TRIGGER
-            } 
+            if (diamonds.length === 1) { winnerId = diamonds[0].playerId; explanation = `Lone Diamond wins!`; playLoneDiamondSound(); } 
             else if (diamonds.length > 1 && diamonds.length < players.length) {
-                playSabotageSound(); // AUDIO TRIGGER
-                if (clubs.length > 0) {
-                    clubs.sort((a,b) => b.card.value - a.card.value);
-                    winnerId = clubs.playerId;
-                    explanation = `Diamond sabotage! High Club wins.`;
-                } else {
-                    dominant.sort((a,b) => b.card.value - a.card.value);
-                    if (dominant.length > 0) {
-                        winnerId = dominant.playerId;
-                        explanation = `Diamond sabotage! Highest card of Leading suit wins.`;
-                    } else {
-                        currentTrick.sort((a,b) => b.card.value - a.card.value);
-                        winnerId = currentTrick.playerId;
-                        explanation = `Sabotage tie! Highest face value card takes the trick by default.`;
-                    }
+                playSabotageSound();
+                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs[0].playerId; explanation = `Diamond sabotage! High Club wins.`; } else {
+                    dominant.sort((a,b) => b.card.value - a.card.value); if (dominant.length > 0) { winnerId = dominant[0].playerId; explanation = `Diamond sabotage! Highest card of Leading suit wins.`; } 
+                    else { currentTrick.sort((a,b) => b.card.value - a.card.value); winnerId = currentTrick[0].playerId; explanation = `Sabotage tie! Highest card wins.`; }
                 }
             } 
-            else if (diamonds.length === players.length) {
-                diamonds.sort((a,b) => b.card.value - a.card.value);
-                winnerId = diamonds.playerId;
-                explanation = `All Diamonds! Highest rank wins.`;
-            } 
+            else if (diamonds.length === players.length) { diamonds.sort((a,b) => b.card.value - a.card.value); winnerId = diamonds[0].playerId; explanation = `All Diamonds! Highest rank wins.`; } 
             else {
-                if (clubs.length > 0) {
-                    clubs.sort((a,b) => b.card.value - a.card.value);
-                    winnerId = clubs.playerId;
-                    explanation = `High Club wins.`;
-                } else {
-                    dominant.sort((a,b) => b.card.value - a.card.value);
-                    winnerId = dominant.playerId;
-                    explanation = `High Dominant wins.`;
-                }
+                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs[0].playerId; explanation = `High Club wins.`; } 
+                else { dominant.sort((a,b) => b.card.value - a.card.value); winnerId = dominant[0].playerId; explanation = `High Dominant wins.`; }
             }
-
-            let pointsEarned = 1 + diamonds.length;
-            players[winnerId].score += pointsEarned;
-            
-            logMessage(`<b>${players[winnerId].name} wins trick. ${explanation} (+1 trick & +${diamonds.length} diamond pts)</b><br>---`);
-            updateScoreboard();
-
+            let pointsEarned = 1 + diamonds.length; players.find(p => p.id === winnerId).score += pointsEarned;
+            logMessage(`<b>${players.find(p => p.id === winnerId).name} wins trick. ${explanation} (+1 trick & +${diamonds.length} diamond pts)</b><br>---`); updateScoreboard();
             currentTrick = []; dominantSuit = null; turnIndex = winnerId;
-
-            if (players.hand.length === 0) { checkGameEndCondition(); }
-            else { highlightActivePlayer(); if (turnIndex === 0) renderPlayerHand(true); else setTimeout(executeAiTurn, 500); }
+            if (players[0].hand.length === 0) { checkGameEndCondition(); } else { highlightActivePlayer(); if (turnIndex === 0) renderPlayerHand(true); else setTimeout(executeAiTurn, 500); }
         }
-
         function checkGameEndCondition() {
             const candidates = players.filter(p => p.score >= 50);
             if (candidates.length > 0) {
-                candidates.sort((a,b) => b.score - a.score);
-                let winner = candidates;
-                if (candidates.length > 1 && candidates.score === candidates.score) {
+                candidates.sort((a,b) => b.score - a.score); let winner = candidates[0];
+                if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
                     logMessage("<b>Tie at 50+! Checking final trick for highest face value diamond...</b>");
-                    let hiVal = -1, tieId = null;
-                    lastTrickDiamonds.forEach(d => { if (d.value > hiVal) { hiVal = d.value; tieId = d.playerId; } });
+                    let hiVal = -1, tieId = null; lastTrickDiamonds.forEach(d => { if (d.value > hiVal) { hiVal = d.value; tieId = d.playerId; } });
                     if (tieId !== null) winner = players.find(p => p.id === tieId);
                 }
                 triggerGameOver(winner);
-            } else {
-                currentDealer = (currentDealer + 1) % players.length; initGame();
-            }
+            } else { currentDealer = (currentDealer + 1) % players.length; initGame(); }
         }
-
-        function triggerGameOver(winner) {
-            endModal.classList.remove('hidden');
-            document.getElementById('end-title').innerText = (winner.id === 0) ? "🎉 Victory!" : "❌ Defeat";
-            document.getElementById('end-desc').innerHTML = `${winner.name} won the match with <b>${winner.score} points</b>!`;
-        }
+        function triggerGameOver(winner) { endModal.classList.remove('hidden'); document.getElementById('end-title').innerText = (winner.id === 0) ? "🎉 Victory!" : "❌ Defeat"; document.getElementById('end-desc').innerHTML = `${winner.name} won the match with <b>${winner.score} points</b>!`; }
     </script>
 </body>
 </html>
