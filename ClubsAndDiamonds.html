@@ -184,12 +184,12 @@
             let idx = 0;
             while(idx < maxDealtCards) { players[idx % numPlayers].hand.push(deck[idx++]); }
             while(idx < 52) { kitty.push(deck[idx++]); }
-            players.hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
+            players.forEach(p => p.hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value));
         }
         function renderPlayerHand(active) {
             playerHandDiv.innerHTML = '';
-            const hasMatchingSuit = players.hand.some(c => c.suit === dominantSuit);
-            players.hand.forEach((card, i) => {
+            const hasMatchingSuit = players[0].hand.some(c => c.suit === dominantSuit);
+            players[0].hand.forEach((card, i) => {
                 const el = document.createElement('div'); el.className = `card suit-${card.suit}`; 
                 let isCardDisabled = !active;
                 if (active && dominantSuit && hasMatchingSuit && card.suit !== dominantSuit) { isCardDisabled = true; }
@@ -215,20 +215,21 @@
                     const dCard = currentTrick.find(t => t.card.suit === 'diamonds'); currentWinningCardValue = dCard.card.value; winningCardSuit = "diamonds";
                 } else {
                     const clubsInTrick = currentTrick.filter(t => t.card.suit === 'clubs').sort((a,b) => b.card.value - a.card.value);
-                    if (clubsInTrick.length > 0) { currentWinningCardValue = clubsInTrick.card.value; winningCardSuit = "clubs"; } else {
+                    if (clubsInTrick.length > 0) { currentWinningCardValue = clubsInTrick[0].card.value; winningCardSuit = "clubs"; } else {
                         const domsInTrick = currentTrick.filter(t => t.card.suit === dominantSuit).sort((a,b) => b.card.value - a.card.value);
-                        if (domsInTrick.length > 0) { currentWinningCardValue = domsInTrick.card.value; winningCardSuit = dominantSuit; }
+                        if (domsInTrick.length > 0) { currentWinningCardValue = domsInTrick[0].card.value; winningCardSuit = dominantSuit; }
                     }
                 }
-                let winningMoves = [];
+                let absoluteWinners = [];
                 legalCardIndices.forEach(idx => {
                     const c = ai.hand[idx];
-                    if (c.suit === 'diamonds' && diamondsInTrick === 0) { winningMoves.push({ index: idx, priority: 3 }); } 
-                    else if (c.suit === 'clubs' && winningCardSuit !== "diamonds") { if (winningCardSuit !== "clubs" || c.value > currentWinningCardValue) { winningMoves.push({ index: idx, priority: 2 }); } } 
-                    else if (c.suit === dominantSuit && winningCardSuit === dominantSuit && c.value > currentWinningCardValue) { winningMoves.push({ index: idx, priority: 1 }); }
+                    if (c.suit === 'diamonds' && diamondsInTrick === 0) { absoluteWinners.push({ index: idx, priority: 3 }); } 
+                    else if (c.suit === 'clubs' && winningCardSuit !== "diamonds") { if (winningCardSuit !== "clubs" || c.value > currentWinningCardValue) { absoluteWinners.push({ index: idx, priority: 2 }); } } 
+                    else if (c.suit === dominantSuit && winningCardSuit === dominantSuit && c.value > currentWinningCardValue) { absoluteWinners.push({ index: idx, priority: 1 }); }
                 });
-                if (winningMoves.length > 0) {
-                    winningMoves.sort((a, b) => b.priority - a.priority); chosenIdx = winningMoves[0].index;
+                if (absoluteWinners.length > 0) {
+                    absoluteWinners.sort((a, b) => b.priority - a.priority); 
+                    chosenIdx = absoluteWinners[0].index; // FIX: Pull index out of array wrapper cleanly
                 } else {
                     let lowestVal = 999;
                     legalCardIndices.forEach(idx => { const c = ai.hand[idx]; if (c.value < lowestVal) { lowestVal = c.value; chosenIdx = idx; } });
@@ -247,7 +248,7 @@
         function highlightActivePlayer() { players.forEach(p => document.getElementById(`score-p${p.id}`).classList.remove('active')); document.getElementById(`score-p${turnIndex}`).classList.add('active'); }
         function updateScoreboard() { players.forEach(p => document.getElementById(`val-p${p.id}`).innerText = p.score); }
         function logMessage(msg) { logBox.innerHTML += `<div>${msg}</div>`; logBox.scrollTop = logBox.scrollHeight; }
-        function playHumanCard(i) { const [cardObj] = players.hand.splice(i, 1); executeCardPlay(players, cardObj); }
+        function playHumanCard(i) { const [cardObj] = players[0].hand.splice(i, 1); executeCardPlay(players[0], cardObj); }
         function executeCardPlay(player, card) {
             if (currentTrick.length === 0) { dominantSuit = card.suit; clearTrickZone(); logMessage(`${player.name} leads <b>${card.rank}${card.symbol}</b>.`); }
             else { logMessage(`${player.name} plays <b>${card.rank}${card.symbol}</b>.`); }
@@ -259,29 +260,29 @@
         function evaluateTrick() {
             let winnerId = null, explanation = ""; const diamonds = currentTrick.filter(t => t.card.suit === 'diamonds'), clubs = currentTrick.filter(t => t.card.suit === 'clubs'), dominant = currentTrick.filter(t => t.card.suit === dominantSuit);
             lastTrickDiamonds = diamonds.map(d => ({ playerId: d.playerId, value: d.card.value }));
-            if (diamonds.length === 1) { winnerId = diamonds.playerId; explanation = `Lone Diamond wins!`; playLoneDiamondSound(); } 
+            if (diamonds.length === 1) { winnerId = diamonds[0].playerId; explanation = `Lone Diamond wins!`; playLoneDiamondSound(); } 
             else if (diamonds.length > 1 && diamonds.length < players.length) {
                 playSabotageSound();
-                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs.playerId; explanation = `Diamond sabotage! High Club wins.`; } else {
-                    dominant.sort((a,b) => b.card.value - a.card.value); if (dominant.length > 0) { winnerId = dominant.playerId; explanation = `Diamond sabotage! Highest card of Leading suit wins.`; } 
-                    else { currentTrick.sort((a,b) => b.card.value - a.card.value); winnerId = currentTrick.playerId; explanation = `Sabotage tie! Highest card wins.`; }
+                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs[0].playerId; explanation = `Diamond sabotage! High Club wins.`; } else {
+                    dominant.sort((a,b) => b.card.value - a.card.value); if (dominant.length > 0) { winnerId = dominant[0].playerId; explanation = `Diamond sabotage! Highest card of Leading suit wins.`; } 
+                    else { currentTrick.sort((a,b) => b.card.value - a.card.value); winnerId = currentTrick[0].playerId; explanation = `Sabotage tie! Highest card wins.`; }
                 }
             } 
-            else if (diamonds.length === players.length) { diamonds.sort((a,b) => b.card.value - a.card.value); winnerId = diamonds.playerId; explanation = `All Diamonds! Highest rank wins.`; } 
+            else if (diamonds.length === players.length) { diamonds.sort((a,b) => b.card.value - a.card.value); winnerId = diamonds[0].playerId; explanation = `All Diamonds! Highest rank wins.`; } 
             else {
-                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs.playerId; explanation = `High Club wins.`; } 
-                else { dominant.sort((a,b) => b.card.value - a.card.value); winnerId = dominant.playerId; explanation = `High Dominant wins.`; }
+                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs[0].playerId; explanation = `High Club wins.`; } 
+                else { dominant.sort((a,b) => b.card.value - a.card.value); winnerId = dominant[0].playerId; explanation = `High Dominant wins.`; }
             }
             let pointsEarned = 1 + diamonds.length; players.find(p => p.id === winnerId).score += pointsEarned;
             logMessage(`<b>${players.find(p => p.id === winnerId).name} wins trick. ${explanation} (+1 trick & +${diamonds.length} diamond pts)</b><br>---`); updateScoreboard();
             currentTrick = []; dominantSuit = null; turnIndex = winnerId;
-            if (players.hand.length === 0) { checkGameEndCondition(); } else { highlightActivePlayer(); if (turnIndex === 0) renderPlayerHand(true); else setTimeout(executeAiTurn, 500); }
+            if (players[0].hand.length === 0) { checkGameEndCondition(); } else { highlightActivePlayer(); if (turnIndex === 0) renderPlayerHand(true); else setTimeout(executeAiTurn, 500); }
         }
         function checkGameEndCondition() {
             const candidates = players.filter(p => p.score >= 50);
             if (candidates.length > 0) {
-                candidates.sort((a,b) => b.score - a.score); let winner = candidates;
-                if (candidates.length > 1 && candidates.score === candidates.score) {
+                candidates.sort((a,b) => b.score - a.score); let winner = candidates[0];
+                if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
                     logMessage("<b>Tie at 50+! Checking final trick for highest face value diamond...</b>");
                     let hiVal = -1, tieId = null; lastTrickDiamonds.forEach(d => { if (d.value > hiVal) { hiVal = d.value; tieId = d.playerId; } });
                     if (tieId !== null) winner = players.find(p => p.id === tieId);
