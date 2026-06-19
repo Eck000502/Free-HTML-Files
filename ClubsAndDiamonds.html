@@ -16,7 +16,7 @@
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
         body { background-color: var(--bg-color); color: var(--text-light); height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: fixed; width: 100%; height: 100%; }
         header { background: rgba(0, 0, 0, 0.4); padding: 6px; text-align: center; border-bottom: 2px solid var(--accent-gold); flex-shrink: 0; display: flex; justify-content: center; align-items: center; gap: 15px; }
-        h1 { font-size: 1.1rem; color: var(--accent gold); letter-spacing: 1px; display: inline-block; }
+        h1 { font-size: 1.1rem; color: var(--accent-gold); letter-spacing: 1px; display: inline-block; }
         .rules-btn { background: none; border: 1px solid var(--accent-gold); color: var(--accent-gold); padding: 2px 8px; font-size: 0.75rem; border-radius: 4px; cursor: pointer; font-weight: bold; }
         .main-container { display: flex; flex: 1; height: calc(100% - 35px); overflow: hidden; position: relative; width: 100%; min-height: 0; }
         .sidebar { width: 240px; background: rgba(0, 0, 0, 0.4); border-right: 1px solid rgba(255,255,255,0.1); padding: 12px; overflow-y: auto; font-size: 0.75rem; flex-shrink: 0; }
@@ -27,6 +27,7 @@
             .sidebar { display: none; }
         }
         
+        /* FIX: Changed justify-content from space-between to flex-start */
         .game-board { flex: 1; display: flex; flex-direction: column; justify-content: flex-start; padding: 4px; height: 100%; overflow: hidden; min-height: 0; gap: 4px; }
         .scoreboard { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; background: rgba(0,0,0,0.5); padding: 4px; border-radius: 6px; flex-shrink: 0; width: 100%; }
         .player-score { text-align: center; padding: 2px 4px; border-radius: 4px; min-width: 60px; background: rgba(255,255,255,0.05); font-size: 0.7rem; }
@@ -37,9 +38,12 @@
         .played-card-container { display: flex; flex-direction: column; align-items: center; gap: 1px; }
         .player-label { font-size: 0.55rem; opacity: 0.8; text-align: center; max-width: 45px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
         .log-box { width: 100%; max-width: 450px; height: 42px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 2px 4px; overflow-y: auto; font-family: monospace; font-size: 0.6rem; flex-shrink: 0; }
-        .player-area { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; flex: 1; min-height: 0; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 6px; overflow: hidden; margin-bottom: env(safe-area-inset-bottom, 10px); }
+        /* FIX: Added margin-top: auto to push the entire hand up on the screen */
+        .player-area { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 6px; margin-top: auto; margin-bottom: 25px; }
         .hand-title { font-size: 0.75rem; color: var(--accent-gold); font-weight: bold; flex-shrink: 0; }
-        .hand { display: flex; gap: 6px 4px; justify-content: center; flex-wrap: wrap; content-visibility: auto; width: 100%; flex: 1; overflow-y: auto; padding: 2px; align-content: flex-start; }
+        
+        /* FIX: Increased max-height to 220px to allow multiple clean card rows */
+        .hand { display: flex; gap: 6px 4px; justify-content: center; flex-wrap: wrap; width: 100%; max-height: 220px; overflow-y: auto; padding: 2px; align-content: flex-start; }
         
         .card { width: 44px; height: 66px; background: var(--card-white); border-radius: 4px; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; color: #000; font-weight: bold; cursor: pointer; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: transform 0.1s; font-size: 0.65rem; flex-shrink: 0; }
         @media (min-height: 650px) { .card { width: 48px; height: 72px; font-size: 0.75rem; } }
@@ -184,12 +188,12 @@
             let idx = 0;
             while(idx < maxDealtCards) { players[idx % numPlayers].hand.push(deck[idx++]); }
             while(idx < 52) { kitty.push(deck[idx++]); }
-            players[0].hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
+            players.hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
         }
         function renderPlayerHand(active) {
             playerHandDiv.innerHTML = '';
-            const hasMatchingSuit = players[0].hand.some(c => c.suit === dominantSuit);
-            players[0].hand.forEach((card, i) => {
+            const hasMatchingSuit = players.hand.some(c => c.suit === dominantSuit);
+            players.hand.forEach((card, i) => {
                 const el = document.createElement('div'); el.className = `card suit-${card.suit}`; 
                 let isCardDisabled = !active;
                 if (active && dominantSuit && hasMatchingSuit && card.suit !== dominantSuit) { isCardDisabled = true; }
