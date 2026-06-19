@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Clubs & Diamonds</title>
+    <title>Clubs & Diamonds - Mobile Responsive</title>
     <style>
         :root {
             --bg-color: #1a2e22;
@@ -14,29 +14,42 @@
             --diamond-color: #d12c2c;
         }
         * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; -webkit-tap-highlight-color: transparent; }
-        body { background-color: var(--bg-color); color: var(--text-light); min-height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: fixed; width: 100%; height: 100%; }
+        body { background-color: var(--bg-color); color: var(--text-light); height: 100vh; display: flex; flex-direction: column; overflow: hidden; position: fixed; width: 100%; }
         header { background: rgba(0, 0, 0, 0.4); padding: 8px; text-align: center; border-bottom: 2px solid var(--accent-gold); flex-shrink: 0; }
-        h1 { font-size: 1.2rem; color: var(--accent-gold); letter-spacing: 1px; }
-        .main-container { display: flex; flex: 1; height: calc(100% - 40px); overflow: hidden; position: relative; }
-        .sidebar { width: 240px; background: rgba(0, 0, 0, 0.4); border-right: 1px solid rgba(255,255,255,0.1); padding: 12px; overflow-y: auto; font-size: 0.75rem; display: block; }
-        @media (max-width: 768px) { .sidebar { display: none; } }
-        .sidebar h2 { color: var(--accent-gold); font-size: 0.9rem; margin-bottom: 8px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px; }
-        .sidebar li { margin-bottom: 6px; line-height: 1.2; }
-        .game-board { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 10px; height: 100%; overflow: hidden; }
-        .scoreboard { display: flex; justify-content: center; flex-wrap: wrap; gap: 6px; background: rgba(0,0,0,0.5); padding: 6px; border-radius: 8px; flex-shrink: 0; max-height: 25%; overflow-y: auto; }
-        .player-score { text-align: center; padding: 4px 8px; border-radius: 4px; min-width: 65px; background: rgba(255,255,255,0.05); font-size: 0.75rem; }
+        h1 { font-size: 1.1rem; color: var(--accent-gold); letter-spacing: 1px; }
+        .main-container { display: flex; flex: 1; height: calc(100% - 40px); overflow: hidden; position: relative; width: 100%; }
+        .sidebar { width: 240px; background: rgba(0, 0, 0, 0.4); border-right: 1px solid rgba(255,255,255,0.1); padding: 12px; overflow-y: auto; font-size: 0.75rem; flex-shrink: 0; }
+        .sidebar h2 { color: var(--accent-gold); font-size: 0.85rem; margin-bottom: 6px; border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px; }
+        .sidebar li { margin-bottom: 4px; line-height: 1.2; }
+        
+        /* Mobile Screen Adjustments */
+        @media (max-width: 768px) { 
+            .main-container { flex-direction: column; }
+            .sidebar { width: 100%; max-height: 75px; border-right: none; border-bottom: 1px solid rgba(255,255,255,0.1); padding: 6px 12px; font-size: 0.7rem; }
+            .sidebar h2 { display: inline-block; border-bottom: none; margin-bottom: 0; margin-right: 5px; font-size: 0.75rem; }
+            .sidebar ul { display: inline; }
+            .sidebar li { display: inline; margin-right: 10px; }
+            .sidebar li::after { content: " | "; color: rgba(255,255,255,0.3); padding-left: 10px; }
+            .sidebar li:last-child::after { content: ""; }
+        }
+        
+        .game-board { flex: 1; display: flex; flex-direction: column; justify-content: space-between; padding: 6px; height: 100%; overflow: hidden; min-height: 0; }
+        .scoreboard { display: flex; justify-content: center; flex-wrap: wrap; gap: 4px; background: rgba(0,0,0,0.5); padding: 4px; border-radius: 6px; flex-shrink: 0; }
+        .player-score { text-align: center; padding: 2px 6px; border-radius: 4px; min-width: 55px; background: rgba(255,255,255,0.05); font-size: 0.65rem; }
         .player-score.active { background: rgba(255, 215, 0, 0.2); border: 1px solid var(--accent-gold); }
-        .score-val { font-size: 1rem; font-weight: bold; display: block; color: var(--accent-gold); }
-        .arena { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-height: 0; padding: 5px 0; }
-        .trick-zone { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 8px; min-height: 100px; width: 100%; background: rgba(255,255,255,0.03); border-radius: 12px; max-width: 550px; border: 1px dashed rgba(255,255,255,0.1); padding: 10px; overflow-y: auto; }
+        .score-val { font-size: 0.9rem; font-weight: bold; display: block; color: var(--accent-gold); }
+        .arena { display: flex; flex-direction: column; align-items: center; justify-content: center; flex: 1; min-height: 0; padding: 4px 0; }
+        .trick-zone { display: flex; justify-content: center; align-items: center; flex-wrap: wrap; gap: 6px; min-height: 90px; width: 100%; background: rgba(255,255,255,0.03); border-radius: 8px; max-width: 500px; border: 1px dashed rgba(255,255,255,0.1); padding: 8px; }
         .played-card-container { display: flex; flex-direction: column; align-items: center; gap: 2px; }
-        .player-label { font-size: 0.65rem; opacity: 0.8; text-align: center; max-width: 55px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-        .log-box { width: 100%; max-width: 500px; height: 65px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 6px; overflow-y: auto; font-family: monospace; font-size: 0.7rem; margin-top: 8px; flex-shrink: 0; }
-        .player-area { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 100%; flex-shrink: 0; background: rgba(0,0,0,0.2); padding: 6px; border-radius: 8px; }
-        .hand-title { font-size: 0.8rem; color: var(--accent-gold); }
-        .hand { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; max-width: 100%; min-height: 85px; max-height: 140px; overflow-y: auto; padding: 2px; }
-        .card { width: 52px; height: 78px; background: var(--card-white); border-radius: 4px; display: flex; flex-direction: column; justify-content: space-between; padding: 4px; color: #000; font-weight: bold; cursor: pointer; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: transform 0.1s; font-size: 0.75rem; }
-        @media (min-height: 700px) { .card { width: 58px; height: 88px; font-size: 0.85rem; } .hand { min-height: 95px; } }
+        .player-label { font-size: 0.6rem; opacity: 0.8; text-align: center; max-width: 45px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+        .log-box { width: 100%; max-width: 450px; height: 50px; background: rgba(0,0,0,0.6); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: 4px; overflow-y: auto; font-family: monospace; font-size: 0.65rem; margin-top: 4px; flex-shrink: 0; }
+        .player-area { display: flex; flex-direction: column; align-items: center; gap: 2px; width: 100%; flex-shrink: 0; background: rgba(0,0,0,0.2); padding: 4px; border-radius: 6px; margin-bottom: 2px; }
+        .hand-title { font-size: 0.75rem; color: var(--accent-gold); }
+        .hand { display: flex; gap: 4px; justify-content: center; flex-wrap: wrap; max-width: 100%; min-height: 70px; max-height: 120px; overflow-y: auto; padding: 2px; }
+        
+        /* CARD SIZES MATCHED FOR COMPACT DISPLAYS */
+        .card { width: 44px; height: 66px; background: var(--card-white); border-radius: 4px; display: flex; flex-direction: column; justify-content: space-between; padding: 3px; color: #000; font-weight: bold; cursor: pointer; user-select: none; box-shadow: 0 2px 4px rgba(0,0,0,0.3); transition: transform 0.1s; font-size: 0.65rem; }
+        @media (min-height: 650px) { .card { width: 50px; height: 75px; font-size: 0.75rem; } .hand { min-height: 80px; } }
         .card:active { transform: scale(0.95); }
         .card.disabled { pointer-events: none; opacity: 0.5; transform: none; }
         .card.suit-clubs { color: var(--club-color); }
