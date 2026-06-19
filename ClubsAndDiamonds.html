@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Clubs & Diamonds - Tactical AI Edition</title>
+    <title>Clubs & Diamonds - Audio Synth Edition</title>
     <style>
         :root {
             --bg-color: #1a2e22;
@@ -61,16 +61,17 @@
         <aside class="sidebar">
             <h2>Tactical Rules</h2>
             <ul>
-                <li><strong>Players:</strong> Configurable 3 to 7 players. Any leftover deck cards stay hidden in the kitty.</li>
-                <li><strong>Trump:</strong> Clubs are always trump.</li>
-                <li><strong>Scoring:</strong>
+                <li>• Any suit may be played at any time. Suit does not need to be followed.</li>
+                <li>• The suit that leads is the highest suit (except Diamonds and Clubs).</li>
+                <li>• Clubs are always trump.</li>
+                <li><strong>Scoring Conditions:</strong>
                     <ul>
                         <li>• Each Diamond = 1 Point</li>
                         <li>• Each Trick Won = 1 Point</li>
                         <li>• First to 50 points wins!</li>
                     </ul>
                 </li>
-                <li><strong>AI Intel:</strong> Bots monitor the match leader, avoid over-sabotaging, and will never drop a 3rd Diamond into play.</li>
+                <li><strong>Sabotage Override:</strong> If 2+ Diamonds are played, they sabotage each other and are ignored. The trick drops to the highest Club. If no Clubs, the highest card of the Leading suit wins.</li>
                 <li><strong>Tie-Breaker:</strong> Won by whoever captured the highest face value diamond in the last trick.</li>
             </ul>
         </aside>
@@ -84,6 +85,54 @@
     <div class="modal hidden" id="end-modal"><div class="modal-content"><h2 id="end-title">Game Over!</h2><p id="end-desc"></p><button id="btn-restart">Play Again</button></div></div>
 
     <script>
+        // Web Audio API Synth Engine
+        let audioCtx = null;
+        
+        function initAudioEngine() {
+            if (!audioCtx) {
+                audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            }
+            if (audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+        }
+
+        function playLoneDiamondSound() {
+            if (!audioCtx) return;
+            let osc1 = audioCtx.createOscillator(), osc2 = audioCtx.createOscillator();
+            let gainNode = audioCtx.createGain();
+            
+            osc1.type = 'triangle'; osc1.frequency.setValueAtTime(880, audioCtx.currentTime); // A5
+            osc1.frequency.setValueAtTime(1320, audioCtx.currentTime + 0.08); // E6
+            
+            osc2.type = 'sine'; osc2.frequency.setValueAtTime(1046.5, audioCtx.currentTime + 0.04); // C6
+            
+            gainNode.gain.setValueAtTime(0.15, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.3);
+            
+            osc1.connect(gainNode); osc2.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            osc1.start(); osc2.start();
+            osc1.stop(audioCtx.currentTime + 0.3); osc2.stop(audioCtx.currentTime + 0.3);
+        }
+
+        function playSabotageSound() {
+            if (!audioCtx) return;
+            let osc = audioCtx.createOscillator(), gainNode = audioCtx.createGain();
+            
+            osc.type = 'sawtooth';
+            osc.frequency.setValueAtTime(180, audioCtx.currentTime);
+            osc.frequency.linearRampToValueAtTime(90, audioCtx.currentTime + 0.4);
+            
+            gainNode.gain.setValueAtTime(0.12, audioCtx.currentTime);
+            gainNode.gain.exponentialRampToValueAtTime(0.001, audioCtx.currentTime + 0.4);
+            
+            osc.connect(gainNode);
+            gainNode.connect(audioCtx.destination);
+            osc.start();
+            osc.stop(audioCtx.currentTime + 0.4);
+        }
+
         const SUITS = [{ name:'clubs', symbol:'♣' }, { name:'diamonds', symbol:'♦' }, { name:'hearts', symbol:'♥' }, { name:'spades', symbol:'♠' }];
         const RANKS = ['2','3','4','5','6','7','8','9','10','J','Q','K','A'];
         const RANK_VALUES = { '2':2, '3':3, '4':4, '5':5, '6':6, '7':7, '8':8, '9':9, '10':10, 'J':11, 'Q':12, 'K':13, 'A':14 };
@@ -97,6 +146,7 @@
         const playerHandDiv = document.getElementById('player-hand'), trickZoneDiv = document.getElementById('trick-zone'), logBox = document.getElementById('log-box');
 
         btnStart.addEventListener('click', () => {
+            initAudioEngine(); // Explicit user-gesture check for mobile browsers
             numPlayers = parseInt(playerSelect.value);
             startModal.classList.add('hidden');
             setupPlayers();
@@ -104,6 +154,7 @@
         });
 
         btnRestart.addEventListener('click', () => {
+            initAudioEngine();
             endModal.classList.add('hidden');
             players.forEach(p => p.score = 0);
             initGame();
@@ -157,12 +208,12 @@
             }
             while(idx < 52) { kitty.push(deck[idx++]); }
             
-            players[0].hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
+            players.hand.sort((a,b) => (a.suit !== b.suit) ? a.suit.localeCompare(b.suit) : b.value - a.value);
         }
 
         function renderPlayerHand(active) {
             playerHandDiv.innerHTML = '';
-            players[0].hand.forEach((card, i) => {
+            players.hand.forEach((card, i) => {
                 const el = document.createElement('div');
                 el.className = `card suit-${card.suit}`;
                 if (!active) el.classList.add('disabled');
@@ -177,51 +228,60 @@
             let chosenIdx = 0;
 
             if (!dominantSuit) {
-                // Leading: Avoid leading diamonds or clubs to protect assets
                 const safeCard = ai.hand.findIndex(c => c.suit !== 'diamonds' && c.suit !== 'clubs');
                 if (safeCard !== -1) chosenIdx = safeCard;
             } else {
-                // TACTICAL INTELLIGENCE CHECKS:
                 const diamondsInTrick = currentTrick.filter(t => t.card.suit === 'diamonds').length;
-                const hasDiamond = ai.hand.findIndex(c => c.suit === 'diamonds');
+                let currentWinningCardValue = -1;
+                let winningCardSuit = "";
 
-                // Determine who is currently on track to win this trick based on temporary state
-                let currentWinnerId = -1;
                 if (diamondsInTrick === 1) {
-                    currentWinnerId = currentTrick.find(t => t.card.suit === 'diamonds').playerId;
-                } else if (diamondsInTrick === 0) {
-                    const clubs = currentTrick.filter(t => t.card.suit === 'clubs').sort((a,b) => b.card.value - a.card.value);
-                    if (clubs.length > 0) currentWinnerId = clubs[0].playerId;
-                    else {
-                        const doms = currentTrick.filter(t => t.card.suit === dominantSuit).sort((a,b) => b.card.value - a.card.value);
-                        if (doms.length > 0) currentWinnerId = doms[0].playerId;
-                    }
-                }
-
-                // Identify the absolute scoreboard leader
-                let leader = players[0];
-                players.forEach(p => { if (p.score > leader.score) leader = p; });
-
-                let shouldSabotage = false;
-                if (hasDiamond !== -1 && currentWinnerId !== -1) {
-                    // Sabotage ONLY if the match leader is about to win the hand
-                    if (currentWinnerId === leader.id) {
-                        shouldSabotage = true;
-                    }
-                }
-
-                // CRITICAL INSTRUCTION OVERRIDE: NEVER play a 3rd diamond under any circumstance
-                if (diamondsInTrick >= 2) {
-                    shouldSabotage = false;
-                }
-
-                if (shouldSabotage && hasDiamond !== -1) {
-                    chosenIdx = hasDiamond;
+                    const dCard = currentTrick.find(t => t.card.suit === 'diamonds');
+                    currentWinningCardValue = dCard.card.value;
+                    winningCardSuit = "diamonds";
                 } else {
-                    // Discard a standard non-diamond card instead to protect points
-                    const nonDiamond = ai.hand.findIndex(c => c.suit !== 'diamonds');
-                    if (nonDiamond !== -1) chosenIdx = nonDiamond;
+                    const clubsInTrick = currentTrick.filter(t => t.card.suit === 'clubs').sort((a,b) => b.card.value - a.card.value);
+                    if (clubsInTrick.length > 0) {
+                        currentWinningCardValue = clubsInTrick.card.value;
+                        winningCardSuit = "clubs";
+                    } else {
+                        const domsInTrick = currentTrick.filter(t => t.card.suit === dominantSuit).sort((a,b) => b.card.value - a.card.value);
+                        if (domsInTrick.length > 0) {
+                            currentWinningCardValue = domsInTrick.card.value;
+                            winningCardSuit = dominantSuit;
+                        }
+                    }
                 }
+
+                let winningAssetIndices = [];
+                ai.hand.forEach((c, idx) => {
+                    if (c.suit === 'diamonds') {
+                        if (diamondsInTrick === 0) winningAssetIndices.push(idx);
+                    } else if (c.suit === 'clubs') {
+                        if (winningCardSuit !== "diamonds") {
+                            if (winningCardSuit !== "clubs" || c.value > currentWinningCardValue) {
+                                winningAssetIndices.push(idx);
+                            }
+                        }
+                    }
+                });
+
+                let allowedIndices = [];
+                ai.hand.forEach((c, idx) => {
+                    if (c.suit !== 'diamonds' && c.suit !== 'clubs') {
+                        allowedIndices.push(idx);
+                    } else {
+                        if (winningAssetIndices.includes(idx)) {
+                            allowedIndices.push(idx);
+                        }
+                    }
+                });
+
+                if (allowedIndices.length === 0) {
+                    allowedIndices = ai.hand.map((_, idx) => idx);
+                }
+
+                chosenIdx = allowedIndices;
             }
 
             executeCardPlay(ai, ai.hand.splice(chosenIdx, 1));
@@ -238,13 +298,13 @@
         function highlightActivePlayer() { players.forEach(p => document.getElementById(`score-p${p.id}`).classList.remove('active')); document.getElementById(`score-p${turnIndex}`).classList.add('active'); }
         function updateScoreboard() { players.forEach(p => document.getElementById(`val-p${p.id}`).innerText = p.score); }
         function logMessage(msg) { logBox.innerHTML += `<div>${msg}</div>`; logBox.scrollTop = logBox.scrollHeight; }
-        function playHumanCard(i) { executeCardPlay(players[0], players[0].hand.splice(i, 1)); }
+        function playHumanCard(i) { executeCardPlay(players, players.hand.splice(i, 1)); }
 
         function executeCardPlay(player, card) {
-            if (currentTrick.length === 0) { dominantSuit = card[0].suit; clearTrickZone(); logMessage(`${player.name} leads <b>${card[0].rank}${card[0].symbol}</b>.`); }
-            else { logMessage(`${player.name} plays <b>${card[0].rank}${card[0].symbol}</b>.`); }
-            currentTrick.push({ playerId: player.id, card: card[0] });
-            renderTrickCard(player, card[0]);
+            if (currentTrick.length === 0) { dominantSuit = card.suit; clearTrickZone(); logMessage(`${player.name} leads <b>${card.rank}${card.symbol}</b>.`); }
+            else { logMessage(`${player.name} plays <b>${card.rank}${card.symbol}</b>.`); }
+            currentTrick.push({ playerId: player.id, card: card });
+            renderTrickCard(player, card);
             turnIndex = (turnIndex + 1) % players.length;
             highlightActivePlayer();
             if (currentTrick.length < players.length) {
@@ -262,27 +322,54 @@
             lastTrickDiamonds = diamonds.map(d => ({ playerId: d.playerId, value: d.card.value }));
 
             if (diamonds.length === 1) {
-                winnerId = diamonds[0].playerId;
+                winnerId = diamonds.playerId;
                 explanation = `Lone Diamond wins!`;
-            } else if (diamonds.length > 1 && diamonds.length < players.length) {
-                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs[0].playerId; explanation = `Sabotage! High Club wins.`; }
-                else { dominant.sort((a,b) => b.card.value - a.card.value); winnerId = dominant.length ? dominant[0].playerId : currentTrick[0].playerId; explanation = `Sabotage! High Dominant wins.`; }
-            } else if (diamonds.length === players.length) {
-                diamonds.sort((a,b) => b.card.value - a.card.value); winnerId = diamonds[0].playerId; explanation = `All Diamonds! Highest rank wins.`;
-            } else {
-                if (clubs.length > 0) { clubs.sort((a,b) => b.card.value - a.card.value); winnerId = clubs[0].playerId; explanation = `High Club wins.`; }
-                else { dominant.sort((a,b) => b.card.value - a.card.value); winnerId = dominant[0].playerId; explanation = `High Dominant wins.`; }
+                playLoneDiamondSound(); // AUDIO TRIGGER
+            } 
+            else if (diamonds.length > 1 && diamonds.length < players.length) {
+                playSabotageSound(); // AUDIO TRIGGER
+                if (clubs.length > 0) {
+                    clubs.sort((a,b) => b.card.value - a.card.value);
+                    winnerId = clubs.playerId;
+                    explanation = `Diamond sabotage! High Club wins.`;
+                } else {
+                    dominant.sort((a,b) => b.card.value - a.card.value);
+                    if (dominant.length > 0) {
+                        winnerId = dominant.playerId;
+                        explanation = `Diamond sabotage! Highest card of Leading suit wins.`;
+                    } else {
+                        currentTrick.sort((a,b) => b.card.value - a.card.value);
+                        winnerId = currentTrick.playerId;
+                        explanation = `Sabotage tie! Highest face value card takes the trick by default.`;
+                    }
+                }
+            } 
+            else if (diamonds.length === players.length) {
+                diamonds.sort((a,b) => b.card.value - a.card.value);
+                winnerId = diamonds.playerId;
+                explanation = `All Diamonds! Highest rank wins.`;
+            } 
+            else {
+                if (clubs.length > 0) {
+                    clubs.sort((a,b) => b.card.value - a.card.value);
+                    winnerId = clubs.playerId;
+                    explanation = `High Club wins.`;
+                } else {
+                    dominant.sort((a,b) => b.card.value - a.card.value);
+                    winnerId = dominant.playerId;
+                    explanation = `High Dominant wins.`;
+                }
             }
 
             let pointsEarned = 1 + diamonds.length;
             players[winnerId].score += pointsEarned;
             
-            logMessage(`<b>${players[winnerId].name} wins trick. ${explanation} (+1 trick point & +${diamonds.length} diamond points)</b><br>---`);
+            logMessage(`<b>${players[winnerId].name} wins trick. ${explanation} (+1 trick & +${diamonds.length} diamond pts)</b><br>---`);
             updateScoreboard();
 
             currentTrick = []; dominantSuit = null; turnIndex = winnerId;
 
-            if (players[0].hand.length === 0) { checkGameEndCondition(); }
+            if (players.hand.length === 0) { checkGameEndCondition(); }
             else { highlightActivePlayer(); if (turnIndex === 0) renderPlayerHand(true); else setTimeout(executeAiTurn, 500); }
         }
 
@@ -290,8 +377,8 @@
             const candidates = players.filter(p => p.score >= 50);
             if (candidates.length > 0) {
                 candidates.sort((a,b) => b.score - a.score);
-                let winner = candidates[0];
-                if (candidates.length > 1 && candidates[0].score === candidates[1].score) {
+                let winner = candidates;
+                if (candidates.length > 1 && candidates.score === candidates.score) {
                     logMessage("<b>Tie at 50+! Checking final trick for highest face value diamond...</b>");
                     let hiVal = -1, tieId = null;
                     lastTrickDiamonds.forEach(d => { if (d.value > hiVal) { hiVal = d.value; tieId = d.playerId; } });
