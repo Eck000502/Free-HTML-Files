@@ -1,0 +1,520 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Universal Game Score Tracker</title>
+    <style>
+        :root {
+            --bg: #121214;
+            --card: #1e1e24;
+            --text: #f3f4f6;
+            --primary: #3b82f6;
+            --danger: #ef4444;
+            --success: #10b981;
+            --border: #374151;
+            --warning: #f59e0b;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            background-color: var(--bg);
+            color: var(--text);
+            margin: 0;
+            padding: 15px;
+            display: flex;
+            justify-content: center;
+        }
+        .app-container {
+            width: 100%;
+            max-width: 700px;
+            background: var(--card);
+            padding: 20px;
+            border-radius: 14px;
+            box-shadow: 0 10px 25px rgba(0,0,0,0.3);
+            position: relative;
+        }
+        h1, h2, h3 { text-align: center; margin-top: 0; color: #fff; }
+        .view { display: none; }
+        .view.active { display: block; }
+        /* LOCKS FIRST COLUMN (CATEGORIES/ROUNDS) ON HORIZONTAL SCROLL */
+        #score-table th:first-child,
+        #score-table td:first-child {
+            position: sticky;
+            left: 0;
+            background-color: #1e1e24 !important; /* Matches the card background to hide passing numbers */
+            z-index: 10;
+            border-right: 2px solid var(--primary); /* Visual anchor divider line */
+            box-shadow: 4px 0 8px rgba(0, 0, 0, 0.3);
+        }
+
+        /* HEADERS REQUIRE HIGHER LAYERING */
+        #score-table th:first-child {
+            background-color: #2d2d35 !important; /* Matches header theme */
+            z-index: 11;
+        }
+
+        /* ENSURES TOTAL ROW STAYS GRAPHICALLY ALIGNED */
+        #score-table tr.total-row td:first-child {
+            background-color: #25252b !important;
+        }
+
+        /* ENSURES YAHTZEE SUBTOTALS STAY GRAPHICALLY ALIGNED */
+        #score-table tr.yahtzee-bonus-row td:first-child {
+            background-color: #25252b !important;
+        }
+        /* FARKLE SCORING CHEAT SHEET */
+        .farkle-guide {
+            background: #2d2d35;
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 12px;
+            margin-bottom: 15px;
+            font-size: 13px;
+        }
+        .farkle-guide summary {
+            font-weight: bold;
+            color: var(--warning);
+            cursor: pointer;
+            outline: none;
+            user-select: none;
+        }
+        .farkle-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px 15px;
+            margin-top: 10px;
+            color: #d1d5db;
+        }
+        .farkle-item {
+            display: flex;
+            justify-content: space-between;
+            border-bottom: 1px dashed #374151;
+            padding-bottom: 2px;
+        }
+        .farkle-pts { font-weight: bold; color: var(--success); }
+    </style>
+    <style>
+        .game-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+            gap: 12px;
+            margin-top: 20px;
+        }
+        .menu-card {
+            background: #2d2d35;
+            border: 1px solid var(--border);
+            padding: 20px 10px;
+            border-radius: 10px;
+            text-align: center;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: transform 0.15s, background 0.15s;
+        }
+        .menu-card:hover { background: #374151; }
+        .menu-card:active { transform: scale(0.96); background: var(--primary); }
+        .setup-row {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: #2d2d35;
+            padding: 12px 15px;
+            border-radius: 8px;
+            margin-bottom: 12px;
+        }
+        select, input[type="text"], input[type="number"] {
+            background: #121214;
+            color: #fff;
+            border: 1px solid var(--border);
+            padding: 8px;
+            border-radius: 6px;
+            font-size: 16px;
+        }
+    </style>
+    <style>
+        .nav-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px; gap: 10px; }
+        .btn { padding: 10px 14px; border: none; border-radius: 6px; font-weight: bold; cursor: pointer; font-size: 14px; }
+        .btn-blue { background: var(--primary); color: white; }
+        .btn-red { background: var(--danger); color: white; }
+        .btn-gray { background: #4b5563; color: white; }
+        .btn-green { background: var(--success); color: white; width: 100%; margin-top: 15px; padding: 12px; font-size: 16px; }
+        .table-wrapper { overflow-x: auto; margin-top: 10px; }
+        table { width: 100%; border-collapse: collapse; min-width: 400px; }
+        th, td { border: 1px solid var(--border); padding: 10px 6px; text-align: center; }
+        th { background: #2d2d35; }
+        .th-name input { width: 90%; font-size: 14px; text-align: center; border: none; background: transparent; font-weight: bold; color: #fff; border-bottom: 1px dashed var(--primary); }
+        .total-row { background: #25252b; font-weight: bold; font-size: 16px; }
+        .sub-label { font-size: 11px; color: #9ca3af; display: block; }
+        .spades-cell { display: flex; gap: 4px; justify-content: center; }
+        .spades-cell input { width: 45px !important; }
+        table input[type="number"] { width: 65px; text-align: center; }
+        .rule-note { font-size: 12px; color: #9ca3af; background: #25252b; padding: 8px; border-radius: 6px; margin-top: 5px; border-left: 3px solid var(--primary); }
+        .row-error { background-color: rgba(239, 68, 68, 0.25) !important; border: 2px solid var(--danger) !important; }
+        .row-warn { background-color: rgba(245, 158, 11, 0.2) !important; border: 2px solid var(--warning) !important; }
+        .spades-info-bubble { font-size: 11px; color: var(--warning); font-weight: bold; display: none; margin-top: 4px; }
+        .yahtzee-bonus-row { background-color: #25252b; font-weight: bold; color: var(--success); }
+        .validation-msg { font-size: 12px; color: var(--danger); font-weight: bold; display: none; margin-top: 4px; text-align: center; }
+        .winner-overlay { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; background: rgba(18, 18, 20, 0.95); border-radius: 14px; z-index: 100; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 20px; box-sizing: border-box; }
+        .winner-overlay.active { display: flex; }
+        .winner-box { background: #2d2d35; padding: 30px; border-radius: 12px; border: 2px solid var(--success); box-shadow: 0 0 20px var(--success); max-width: 80%; }
+        .winner-title { font-size: 32px; color: var(--success); margin-bottom: 10px; font-weight: 800; }
+        .winner-name { font-size: 24px; font-weight: bold; color: white; margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+<div class="app-container">
+    <!-- WINNER MODAL -->
+    <div id="winner-modal" class="winner-overlay">
+        <div class="winner-box">
+            <div class="winner-title">🏆 GAME OVER 🏆</div>
+            <div id="winner-text" class="winner-name">Player Wins!</div>
+            <div id="winner-details" style="margin-bottom: 25px; color: #9ca3af;">Final Score: 0</div>
+            <button class="btn btn-blue" onclick="dismissWinner()">Review Scorecard</button>
+            <button class="btn btn-red" onclick="resetCurrentGame(); dismissWinner();" style="margin-left: 10px;">New Game</button>
+        </div>
+    </div>
+
+    <!-- MAIN MENU SCREEN -->
+    <div id="view-menu" class="view active">
+        <div style="display: flex; justify-content: space-between; align-items: center;">
+            <h1>Game Score Tracker</h1>
+            <button class="btn btn-red" onclick="forceWipeCache()">Clear Cache</button>
+        </div>
+        <div class="game-grid" id="menu-container"></div>
+    </div>
+
+    <!-- SETUP SCREEN -->
+    <div id="view-setup" class="view">
+        <div class="nav-header">
+            <button class="btn btn-gray" onclick="exitToMenu()">← Menu</button>
+            <h2 id="setup-title">Setup</h2>
+            <div></div>
+        </div>
+        <div class="setup-row">
+            <label>Number of Players/Teams:</label>
+            <select id="setup-player-count" onchange="generateSetupNames()"></select>
+        </div>
+        <div class="setup-row" id="target-score-container">
+            <label id="target-score-label">Target Score:</label>
+            <input type="number" id="setup-target-score" style="width: 100px;">
+        </div>
+        <h3>Player/Team Names:</h3>
+        <div id="setup-names-container" style="display: flex; flex-direction: column; gap: 10px; margin-bottom: 20px;"></div>
+        <button class="btn btn-blue" style="width: 100%; padding: 12px; font-size: 16px;" onclick="startGame()">Start Scoring</button>
+    </div>
+
+    <!-- SCORECARD SCREEN -->
+    <div id="view-scorecard" class="view">
+        <div class="nav-header">
+            <button class="btn btn-gray" onclick="exitToMenu()">← Menu</button>
+            <h2 id="scorecard-title">Scorecard</h2>
+            <button class="btn btn-red" onclick="resetCurrentGame()">New Game</button>
+        </div>
+        <div id="special-rule-indicator"></div>
+        <div id="row-validation-warning" class="validation-msg">⚠️ Errors detected in highlighted round scores!</div>
+        
+        <div class="table-wrapper">
+            <table id="score-table">
+                <thead><tr id="headers-row"></tr></thead>
+                <tbody id="body-rows"></tbody>
+                <tfoot><tr id="totals-row" class="total-row"></tr></tfoot>
+            </table>
+        </div>
+        <button class="btn btn-green" id="add-row-btn" onclick="addNewRow()">+ Add Round</button>
+    </div>
+</div>
+<script>
+    const gameTemplates = {
+        "spades": { title: "Spades", minP: 2, maxP: 4, defP: 2, names: ["Team 1", "Team 2"], target: 500, label: "Target Points:", winCondition: "highest", rules: "Spades Mode: Yellow alert flags bid total != 13. Red highlights locked tricks total != 13. 10 Bags = -100pts." },
+        "hearts": { title: "Hearts", minP: 3, maxP: 6, defP: 4, names: ["Player 1", "Player 2", "Player 3", "Player 4"], target: 100, label: "Losing Limit Trigger:", winCondition: "lowest", rules: "Hearts Mode: Entries must sum to exactly 26 penalty points per round, unless a player shoots the moon. Lowest score wins." },
+        "yahtzee": { title: "Yahtzee", minP: 1, maxP: 8, defP: 2, names: ["Player 1", "Player 2"], target: 13, label: "Rounds Limit (Fixed):", winCondition: "highest", rules: "Yahtzee Scorecard: Tracks Upper vs Lower categories. Upper subtotal automatically adds a +35 point milestone bonus if >= 63." },
+        "scrabble": { title: "Scrabble", minP: 2, maxP: 4, defP: 2, names: ["Player 1", "Player 2"], target: 500, label: "Target Ending Points:", winCondition: "highest", rules: "Scrabble Mode: Core rolling addition tracker. Allows inputting negative values for unplayed tiles at the end of matches." },
+        "rummy": { title: "Rummy", minP: 2, maxP: 6, defP: 3, names: ["Player 1", "Player 2", "Player 3"], target: 500, label: "Losing Limit Trigger:", winCondition: "lowest", rules: "Rummy Mode: Running tracker sheet. Allows entering negative counts. Lowest score wins when someone triggers the target." },
+        "farkle": { title: "Farkle", minP: 2, maxP: 8, defP: 4, names: ["Player 1", "Player 2", "Player 3", "Player 4"], target: 10000, label: "Target Ending Points:", winCondition: "highest", rules: "Farkle Mode: High score tracking matrix. First player to successfully pass the target score claims overall victory." }
+    };
+
+    const yahtzeeCategories = [
+        { name: "Ones (1s)", type: "input" }, { name: "Twos (2s)", type: "input" }, { name: "Threes (3s)", type: "input" },
+        { name: "Fours (4s)", type: "input" }, { name: "Fives (5s)", type: "input" }, { name: "Sixes (6s)", type: "input" },
+        { name: "Upper Subtotal", type: "total" }, { name: "Bonus (+35 if >= 63)", type: "total" }, { name: "Upper Total", type: "total" },
+        { name: "Three of a Kind", type: "input" }, { name: "Four of a Kind", type: "input" }, { name: "Full House (25)", type: "input" },
+        { name: "Small Straight (30)", type: "input" }, { name: "Large Straight (40)", type: "input" }, { name: "Yahtzee (50)", type: "input" },
+        { name: "Chance", type: "input" }, { name: "Lower Total", type: "total" }
+    ];
+
+    let activeKey = ""; let activeConfig = null;
+
+    function init() {
+        const container = document.getElementById("menu-container"); container.innerHTML = "";
+        Object.keys(gameTemplates).forEach(key => {
+            const div = document.createElement("div"); div.className = "menu-card";
+            div.textContent = gameTemplates[key].title; div.onclick = () => openSetup(key);
+            container.appendChild(div);
+        });
+        try {
+            const savedKey = localStorage.getItem("active_game_key"); const savedConfig = localStorage.getItem("active_game_config");
+            if (savedKey && savedConfig && gameTemplates[savedKey]) {
+                activeKey = savedKey; activeConfig = JSON.parse(savedConfig); buildScorecardUI(); changeView('view-scorecard');
+            } else { exitToMenu(); }
+        } catch(e) { exitToMenu(); }
+    }
+
+    function changeView(id) { document.querySelectorAll('.view').forEach(v => v.classList.remove('active')); document.getElementById(id).classList.add('active'); }
+    function exitToMenu() { localStorage.removeItem("active_game_key"); localStorage.removeItem("active_game_config"); activeKey = ""; activeConfig = null; changeView('view-menu'); }
+    function forceWipeCache() { if(confirm("Wipe all locally stored games?")) { localStorage.clear(); exitToMenu(); alert("App cache reset."); } }
+    function saveState() { localStorage.setItem("active_game_key", activeKey); localStorage.setItem("active_game_config", JSON.stringify(activeConfig)); }
+    function syncPlayerName(idx, newName) { activeConfig.players[idx] = newName; saveState(); }
+    function dismissWinner() { document.getElementById("winner-modal").classList.remove("active"); }
+</script>
+<script>
+    function openSetup(key) {
+        activeKey = key; const game = gameTemplates[key];
+        document.getElementById("setup-title").textContent = game.title + " Setup";
+        document.getElementById("target-score-label").textContent = game.label;
+        const targetInput = document.getElementById("setup-target-score");
+        targetInput.value = game.target; targetInput.disabled = (key === 'yahtzee');
+        const dropdown = document.getElementById("setup-player-count"); dropdown.innerHTML = "";
+        for(let i = game.minP; i <= game.maxP; i++) {
+            const opt = document.createElement("option"); opt.value = i;
+            opt.textContent = i + (key === 'spades' ? " Teams" : " Players");
+            if(i === game.defP) opt.selected = true; dropdown.appendChild(opt);
+        }
+        generateSetupNames(); changeView('view-setup');
+    }
+
+    function generateSetupNames() {
+        const count = parseInt(document.getElementById("setup-player-count").value);
+        const container = document.getElementById("setup-names-container"); container.innerHTML = "";
+        const defaultNames = gameTemplates[activeKey].names;
+        for(let i = 0; i < count; i++) {
+            const input = document.createElement("input"); input.type = "text"; input.id = `p-name-${i}`;
+            input.value = defaultNames[i] ? defaultNames[i] : (activeKey === 'spades' ? `Team ${i+1}` : `Player ${i+1}`);
+            container.appendChild(input);
+        }
+    }
+
+    function startGame() {
+        const count = parseInt(document.getElementById("setup-player-count").value);
+        let customTarget = parseInt(document.getElementById("setup-target-score").value);
+        if (isNaN(customTarget) || customTarget <= 0) customTarget = gameTemplates[activeKey].target;
+        activeConfig = { key: activeKey, players: [], rounds: [], target: customTarget, winnerDeclared: false };
+        for(let i = 0; i < count; i++) { activeConfig.players.push(document.getElementById(`p-name-${i}`).value); }
+        saveState(); buildScorecardUI(); changeView('view-scorecard');
+    }
+
+    function buildScorecardUI() {
+        document.getElementById("scorecard-title").textContent = gameTemplates[activeConfig.key].title;
+        const ruleInd = document.getElementById("special-rule-indicator");
+        
+        // Base game rule text
+        let ruleHtml = `<div class="rule-note">${gameTemplates[activeConfig.key].rules}</div>`;
+        
+        // DYNAMIC FARKLE GUIDE INJECTION
+        if (activeConfig.key === 'farkle') {
+            ruleHtml += `
+            <details class="farkle-guide">
+                <summary>🎲 View Farkle Points Guide / Cheat Sheet</summary>
+                <div class="farkle-grid">
+                    <div class="farkle-item"><span>Single 1</span><span class="farkle-pts">100</span></div>
+                    <div class="farkle-item"><span>Single 5</span><span class="farkle-pts">50</span></div>
+                    <div class="farkle-item"><span>Three 1s</span><span class="farkle-pts">1,000</span></div>
+                    <div class="farkle-item"><span>Three 2s</span><span class="farkle-pts">200</span></div>
+                    <div class="farkle-item"><span>Three 3s</span><span class="farkle-pts">300</span></div>
+                    <div class="farkle-item"><span>Three 4s</span><span class="farkle-pts">400</span></div>
+                    <div class="farkle-item"><span>Three 5s</span><span class="farkle-pts">500</span></div>
+                    <div class="farkle-item"><span>Three 6s</span><span class="farkle-pts">600</span></div>
+                    <div class="farkle-item"><span>4 of any kind</span><span class="farkle-pts">1,000</span></div>
+                    <div class="farkle-item"><span>5 of any kind</span><span class="farkle-pts">2,000</span></div>
+                    <div class="farkle-item"><span>6 of any kind</span><span class="farkle-pts">3,000</span></div>
+                    <div class="farkle-item"><span>1-6 Straight</span><span class="farkle-pts">1,500</span></div>
+                    <div class="farkle-item"><span>3 Pairs</span><span class="farkle-pts">1,500</span></div>
+                    <div class="farkle-item"><span>2 Triplets</span><span class="farkle-pts">2,500</span></div>
+                </div>
+            </details>`;
+        }
+        
+        ruleInd.innerHTML = ruleHtml;
+        const hRow = document.getElementById("headers-row"); const tbody = document.getElementById("body-rows");
+        const addBtn = document.getElementById("add-row-btn"); tbody.innerHTML = "";
+
+        if (activeConfig.key === 'yahtzee') {
+            addBtn.style.display = "none"; let hHtml = `<th>Category</th>`;
+            activeConfig.players.forEach((p, idx) => { hHtml += `<th class="th-name"><input type="text" value="${p}" oninput="syncPlayerName(${idx}, this.value)"></th>`; });
+            hRow.innerHTML = hHtml;
+            if (!activeConfig.rounds || activeConfig.rounds.length === 0) {
+                activeConfig.rounds = []; yahtzeeCategories.forEach(() => { activeConfig.rounds.push(Array(activeConfig.players.length).fill("")); });
+            }
+            yahtzeeCategories.forEach((cat, rIdx) => renderYahtzeeRow(rIdx, cat));
+        } else {
+            addBtn.style.display = "block"; let hHtml = `<th>Rd</th>`;
+            activeConfig.players.forEach((p, idx) => { hHtml += `<th class="th-name"><input type="text" value="${p}" oninput="syncPlayerName(${idx}, this.value)"></th>`; });
+            hRow.innerHTML = hHtml;
+            if (!activeConfig.rounds || activeConfig.rounds.length === 0) { activeConfig.rounds = []; activeConfig.rounds.push(createEmptyRoundData()); }
+            activeConfig.rounds.forEach((rd, rIdx) => renderStandardRow(rIdx, rd));
+        }
+        tallyPoints();
+    }
+
+    function createEmptyRoundData() {
+        let arr = []; activeConfig.players.forEach(() => { if(activeConfig.key === 'spades') arr.push({ bid: "", tricks: "" }); else arr.push(""); }); return arr;
+    }
+</script>
+<script>
+    function renderStandardRow(rIdx, rdData) {
+        const tbody = document.getElementById("body-rows"); const tr = document.createElement("tr"); tr.id = "row-" + rIdx;
+        let rowHtml = `<td>${rIdx + 1}<div id="row-info-${rIdx}" class="spades-info-bubble"></div></td>`;
+        activeConfig.players.forEach((_, pIdx) => {
+            if(activeConfig.key === 'spades') {
+                const val = rdData[pIdx] || { bid: "", tricks: "" };
+                rowHtml += `<td><div class="spades-cell">
+                    <input type="number" placeholder="B" min="0" max="13" value="${val.bid}" oninput="updateCell(${rIdx}, ${pIdx}, 'bid', this.value)">
+                    <input type="number" placeholder="T" min="0" max="13" value="${val.tricks}" oninput="updateCell(${rIdx}, ${pIdx}, 'tricks', this.value)">
+                </div></td>`;
+            } else {
+                const val = (rdData[pIdx] !== undefined && rdData[pIdx] !== "") ? rdData[pIdx] : "";
+                let maxAttr = activeConfig.key === 'hearts' ? 'min="0" max="26"' : '';
+                rowHtml += `<td><input type="number" placeholder="0" ${maxAttr} value="${val}" oninput="updateCell(${rIdx}, ${pIdx}, null, this.value)"></td>`;
+            }
+        });
+        tr.innerHTML = rowHtml; tbody.appendChild(tr);
+    }
+
+    function renderYahtzeeRow(rIdx, cat) {
+        const tbody = document.getElementById("body-rows"); const tr = document.createElement("tr");
+        if(cat.type === 'total') tr.className = 'yahtzee-bonus-row';
+        let rowHtml = `<td style="text-align: left; font-weight: ${cat.type==='total'?'bold':'normal'}">${cat.name}</td>`;
+        activeConfig.players.forEach((_, pIdx) => {
+            if (cat.type === 'total') { rowHtml += `<td id="y-calc-${rIdx}-p-${pIdx}" style="font-weight: bold;">0</td>`; }
+            else { const val = activeConfig.rounds[rIdx][pIdx] !== undefined ? activeConfig.rounds[rIdx][pIdx] : "";
+                rowHtml += `<td><input type="number" placeholder="-" value="${val}" oninput="updateCell(${rIdx}, ${pIdx}, null, this.value)"></td>`; }
+        });
+        tr.innerHTML = rowHtml; tbody.appendChild(tr);
+    }
+
+    function addNewRow() { const newRd = createEmptyRoundData(); activeConfig.rounds.push(newRd); renderStandardRow(activeConfig.rounds.length - 1, newRd); saveState(); }
+    function resetCurrentGame() { if(confirm("Wipe points?")) { activeConfig.rounds = []; activeConfig.winnerDeclared = false; buildScorecardUI(); saveState(); } }
+
+    function updateCell(rIdx, pIdx, subField, val) {
+        if(activeConfig.key === 'spades') {
+            if(!activeConfig.rounds[rIdx][pIdx]) activeConfig.rounds[rIdx][pIdx] = { bid: "", tricks: "" };
+            let parsed = val !== "" ? parseInt(val) : ""; if(parsed !== "" && parsed > 13) parsed = 13; if(parsed !== "" && parsed < 0) parsed = 0;
+            activeConfig.rounds[rIdx][pIdx][subField] = parsed;
+        } else { 
+            let parsed = val !== "" ? parseInt(val) : 0;
+            // HARD CLAMP LAYER: Checks and caps numbers immediately on every single keystroke
+            if (activeConfig.key === 'hearts') {
+                if (parsed > 26) {
+                    parsed = 26;
+                    // Dynamically forces the physical text field on your screen to drop back down to 26
+                    setTimeout(() => { buildScorecardUI(); }, 10);
+                }
+                if (parsed < 0) parsed = 0;
+            }
+            activeConfig.rounds[rIdx][pIdx] = parsed; 
+        }
+        saveState(); tallyPoints();
+    }
+</script>
+
+<script>
+    function tallyPoints() {
+        const pCount = activeConfig.players.length; const gKey = activeConfig.key;
+        if (gKey === 'yahtzee') { tallyYahtzeeEngine(pCount); return; }
+        let finalTotals = Array(pCount).fill(0), spadesBags = Array(pCount).fill(0), heartsRoundScores = [], hasErrors = false;
+
+        activeConfig.rounds.forEach((rd, rIdx) => {
+            let hRound = Array(pCount).fill(0); const rowElement = document.getElementById("row-" + rIdx);
+            const infoBubble = document.getElementById("row-info-" + rIdx); if(infoBubble) infoBubble.style.display = "none";
+            let rowState = "valid", alertMsg = "";
+
+            if (gKey === 'spades') {
+                let totalBids = 0, filledBids = 0, totalTricks = 0, filledTricks = 0, outOfBounds = false;
+                rd.forEach(item => { if(item) { if(item.bid !== "") { totalBids += item.bid; filledBids++; if(item.bid > 13 || item.bid < 0) outOfBounds = true; } if(item.tricks !== "") { totalTricks += item.tricks; filledTricks++; if(item.tricks > 13 || item.tricks < 0) outOfBounds = true; } } });
+                if (outOfBounds || (filledTricks === pCount && totalTricks !== 13)) { rowState = "error"; }
+                else if (filledBids === pCount && filledTricks < pCount && totalBids !== 13) { rowState = "warning"; alertMsg = (13 - totalBids) > 0 ? "Unclaimed: " + (13 - totalBids) : "Overbid: " + Math.abs(13 - totalBids); }
+            } else if (gKey === 'hearts') {
+                let totalPts = 0, filled = 0, containsMoon = false;
+                let hasInvalidSingleValue = false;
+
+                rd.forEach(item => { 
+                    if(item !== "") { 
+                        let num = parseInt(item);
+                        totalPts += num; filled++; 
+                        if (num === 26) containsMoon = true;
+                        
+                        // FIXED CEILING: Instantly flags ANY individual cell score over 25 unless it is a perfect 26 moonshot
+                        if (num > 25 && num !== 26) hasInvalidSingleValue = true;
+                    } 
+                });
+                
+                // VALIDATES MATCH DECK INTEGRITY
+                if (hasInvalidSingleValue || totalPts > 26) {
+                    rowState = "error";
+                    alertMsg = "Invalid Score!";
+                } else if (filled === pCount && totalPts !== 26 && !containsMoon) {
+                    rowState = "error";
+                    alertMsg = "Must total 26!";
+                } else if (filled > 0 && totalPts < 26 && !containsMoon) {
+                    rowState = "warning";
+                    alertMsg = "Points Left: " + (26 - totalPts);
+                }
+            }
+
+            if(rowElement) { 
+                rowElement.classList.remove("row-error", "row-warn"); 
+                if (rowState === "error") { 
+                    rowElement.classList.add("row-error"); hasErrors = true; 
+                    if (infoBubble && alertMsg !== "") { infoBubble.textContent = alertMsg; infoBubble.style.display = "block"; }
+                } else if (rowState === "warning") { 
+                    rowElement.classList.add("row-warn"); 
+                    if (infoBubble) { infoBubble.textContent = alertMsg; infoBubble.style.display = "block"; } 
+                } 
+            }
+            for(let i=0; i<pCount; i++) { const item = rd[i]; if(gKey === 'spades') { if(item && item.bid !== "" && item.tricks !== "") { if(item.tricks >= item.bid) { finalTotals[i] += (item.bid * 10) + (item.tricks - item.bid); spadesBags[i] += (item.tricks - item.bid); } else finalTotals[i] -= (item.bid * 10); } } else if(gKey === 'hearts') { hRound[i] = (item !== "" && !isNaN(item)) ? parseInt(item) : 0; } else { finalTotals[i] += (item !== "" && !isNaN(item)) ? parseInt(item) : 0; } }
+            if(gKey === 'hearts') heartsRoundScores.push(hRound);
+        });
+
+        document.getElementById("row-validation-warning").style.display = hasErrors ? "block" : "none";
+        if(gKey === 'spades') { for(let i=0; i<pCount; i++) { if(spadesBags[i] >= 10) finalTotals[i] -= (Math.floor(spadesBags[i] / 10) * 100); } }
+        if(gKey === 'hearts') { finalTotals.fill(0); heartsRoundScores.forEach(round => { let maxVal = Math.max(...round); let shooter = (maxVal === 26) ? round.indexOf(maxVal) : -1; for(let i=0; i<pCount; i++) { if (shooter !== -1) { finalTotals[i] += (i === shooter) ? 0 : 26; } else { finalTotals[i] += round[i]; } } }); }
+
+        const tRow = document.getElementById("totals-row"); let tHtml = "<td>Total</td>";
+        for(let i=0; i<pCount; i++) { let label = gKey === 'spades' ? '<span class="sub-label">Bags: ' + spadesBags[i] + '</span>' : ""; tHtml += "<td>" + finalTotals[i] + label + "</td>"; }
+        tRow.innerHTML = tHtml; if(!hasErrors && !activeConfig.winnerDeclared) checkWinConditions(finalTotals);
+    }
+
+    function tallyYahtzeeEngine(pCount) {
+        let finalTotals = Array(pCount).fill(0);
+        for (let pIdx = 0; pIdx < pCount; pIdx++) {
+            let upperSum = 0, lowerSum = 0; for (let r = 0; r <= 5; r++) { let val = parseInt(activeConfig.rounds[r][pIdx]); if (!isNaN(val)) upperSum += val; }
+            document.getElementById("y-calc-6-p-" + pIdx).textContent = upperSum; let upperBonus = upperSum >= 63 ? 35 : 0; document.getElementById("y-calc-7-p-" + pIdx).textContent = upperBonus;
+            let totalUpperCombined = upperSum + upperBonus; document.getElementById("y-calc-8-p-" + pIdx).textContent = totalUpperCombined;
+            for (let r = 9; r <= 15; r++) { let val = parseInt(activeConfig.rounds[r][pIdx]); if (!isNaN(val)) lowerSum += val; }
+            document.getElementById("y-calc-16-p-" + pIdx).textContent = lowerSum; finalTotals[pIdx] = totalUpperCombined + lowerSum;
+        }
+        const tRow = document.getElementById("totals-row"); let tHtml = "<td>Total</td>"; for (let i = 0; i < pCount; i++) tHtml += "<td>" + finalTotals[i] + "</td>"; tRow.innerHTML = tHtml;
+        let cellsFilled = 0, totalInputSlots = 14 * pCount; yahtzeeCategories.forEach((cat, rIdx) => { if (cat.type === 'input') { for(let i=0; i<pCount; i++) { if (activeConfig.rounds[rIdx][i] !== "") cellsFilled++; } } });
+        if (cellsFilled === totalInputSlots && !activeConfig.winnerDeclared) checkWinConditions(finalTotals);
+    }
+
+    function checkWinConditions(totals) {
+        let gameOver = false, winnerIndex = 0; const gKey = activeConfig.key, target = activeConfig.target, winCondition = gameTemplates[gKey].winCondition; const pCount = activeConfig.players.length;
+        if (gKey === 'yahtzee') {
+            let cellsFilled = 0, totalInputSlots = 14 * pCount; yahtzeeCategories.forEach((cat, rIdx) => { if (cat.type === 'input') { for(let i=0; i<pCount; i++) { if (activeConfig.rounds[rIdx][i] !== "") cellsFilled++; } } });
+            if(cellsFilled === totalInputSlots) { gameOver = true; winnerIndex = totals.indexOf(Math.max(...totals)); }
+        } else if (winCondition === 'lowest') { let maxVal = Math.max(...totals); if (maxVal >= target) { gameOver = true; winnerIndex = totals.indexOf(Math.min(...totals)); }
+        } else { let maxVal = Math.max(...totals); if (maxVal >= target) { gameOver = true; winnerIndex = totals.indexOf(Math.max(...totals)); } }
+        
+        if (gameOver) {
+            activeConfig.winnerDeclared = true; saveState();
+            document.getElementById("winner-text").textContent = "🎉 " + activeConfig.players[winnerIndex] + " Wins! 🎉";
+            document.getElementById("winner-details").textContent = "Final Score: " + totals[winnerIndex];
+            document.getElementById("winner-modal").classList.add("active");
+        }
+    }
+
+    init();
+</script>
+
+</body>
+</html>
