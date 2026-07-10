@@ -903,25 +903,35 @@
             renderEntries();
         }
 
+/* === COPIED ALPHABETICAL SIDEBAR FILTERS BOUNDARY START === */
         function renderFilters() {
             // Start with empty sets so the sidebar ONLY lists items found in your entries
-            var usedCategories = new Set();
+            var usedCategories = new Set(); 
             var usedTags = new Set();
-
+            
             // Loop through active logs to dynamically harvest whatever choices are written
             state.entries.forEach(function(entry) {
                 if (entry.category) usedCategories.add(entry.category);
                 if (entry.tag) usedTags.add(entry.tag);
             });
 
-            // Convert the unique sets back to sorted arrays and draw the sidebars
-            renderFilterGroup(filterCatList, Array.from(usedCategories), state.activeCategoryFilter, function(val) {
+            // Convert sets to standard arrays and apply strict alphabetical sorting models
+            var sortedCategoriesArray = Array.from(usedCategories).sort(function(a, b) {
+                return a.toLowerCase().localeCompare(b.toLowerCase());
+            });
+            var sortedTagsArray = Array.from(usedTags).sort(function(a, b) {
+                return a.toLowerCase().localeCompare(b.toLowerCase());
+            });
+
+            // Re-render the sidebars cleanly with alphabetized tracking sets
+            renderFilterGroup(filterCatList, sortedCategoriesArray, state.activeCategoryFilter, function(val) {
                 state.activeCategoryFilter = val; renderFilters(); renderEntries();
             });
-            renderFilterGroup(filterTagList, Array.from(usedTags), state.activeTagFilter, function(val) {
+            renderFilterGroup(filterTagList, sortedTagsArray, state.activeTagFilter, function(val) {
                 state.activeTagFilter = val; renderFilters(); renderEntries();
             });
         }
+/* === COPIED ALPHABETICAL SIDEBAR FILTERS BOUNDARY END === */
 
         function renderFilterGroup(element, itemsArray, activeValue, clickHandler) {
             element.innerHTML = "";
