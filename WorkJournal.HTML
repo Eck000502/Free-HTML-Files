@@ -903,19 +903,25 @@
             renderEntries();
         }
 
-/* === COPIED ALPHABETICAL SIDEBAR FILTERS BOUNDARY START === */
+/* === FIXED CASE-INSENSITIVE ALPHABETICAL SIDEBAR FILTERS START === */
         function renderFilters() {
-            // Start with empty sets so the sidebar ONLY lists items found in your entries
             var usedCategories = new Set(); 
             var usedTags = new Set();
             
-            // Loop through active logs to dynamically harvest whatever choices are written
             state.entries.forEach(function(entry) {
                 if (entry.category) usedCategories.add(entry.category);
-                if (entry.tag) usedTags.add(entry.tag);
+                
+                // FIXED: Safely loop through multiple tags if entry.tags is an array
+                if (Array.isArray(entry.tags)) {
+                    entry.tags.forEach(function(t) {
+                        if (t) usedTags.add(t);
+                    });
+                } else if (entry.tag) { 
+                    // Fallback for singular property
+                    usedTags.add(entry.tag);
+                }
             });
 
-            // Convert sets to standard arrays and apply strict alphabetical sorting models
             var sortedCategoriesArray = Array.from(usedCategories).sort(function(a, b) {
                 return a.toLowerCase().localeCompare(b.toLowerCase());
             });
@@ -923,7 +929,6 @@
                 return a.toLowerCase().localeCompare(b.toLowerCase());
             });
 
-            // Re-render the sidebars cleanly with alphabetized tracking sets
             renderFilterGroup(filterCatList, sortedCategoriesArray, state.activeCategoryFilter, function(val) {
                 state.activeCategoryFilter = val; renderFilters(); renderEntries();
             });
@@ -931,22 +936,30 @@
                 state.activeTagFilter = val; renderFilters(); renderEntries();
             });
         }
-/* === COPIED ALPHABETICAL SIDEBAR FILTERS BOUNDARY END === */
+/* === FIXED CASE-INSENSITIVE ALPHABETICAL SIDEBAR FILTERS END === */
 
-        function renderFilterGroup(element, itemsArray, activeValue, clickHandler) {
-            element.innerHTML = "";
-            var sortedItems = itemsArray.sort();
-            var items = ["All"];
-            sortedItems.forEach(function(item) { items.push(item); });
+		/* === FIXED RENDER FILTER GROUP === */
+		function renderFilterGroup(element, itemsArray, activeValue, clickHandler) {
+			element.innerHTML = '';
+			
+			// Create the 'All' option first
+			var allLi = document.createElement('li');
+			allLi.textContent = 'All';
+			if (!activeValue) allLi.classList.add('active');
+			allLi.addEventListener('click', function() { clickHandler(''); });
+			element.appendChild(allLi);
 
-            items.forEach(function(item) {
-                var li = document.createElement('li');
-                li.className = 'filter-item' + (item === activeValue ? ' active' : '');
-                li.innerText = item;
-                li.onclick = function() { clickHandler(item); };
-                element.appendChild(li);
-            });
-        }
+			// REMOVED: Any internal itemsArray.sort() that was breaking case-insensitivity
+
+			// Render the items exactly as they were sorted in renderFilters()
+			itemsArray.forEach(function(item) {
+				var li = document.createElement('li');
+				li.textContent = item;
+				if (item === activeValue) li.classList.add('active');
+				li.addEventListener('click', function() { clickHandler(item); });
+				element.appendChild(li);
+			});
+		}
 
         // Helper function to extract date from entry content
         function extractDateFromEntry(content) {
