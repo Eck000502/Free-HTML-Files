@@ -113,11 +113,20 @@
             </div>
         </div>
 
-        <!-- Game 5: Joe Spanish Game -->
+        <!-- Game 5: Clubs And Diamonds Game -->
         <div class="game-card">
             <span class="game-title">Clubs And Diamonds</span>
             <div class="actions">
                 <a href="ClubsAndDiamonds.html" class="btn-play">Play Game</a>
+            </div>
+        </div>
+
+        <!-- Game 6: Work Journal -->
+        <div class="game-card">
+            <span class="game-title">Work Journal</span>
+            <div class="actions">
+                <a href="WorkJournal.HTML" class="btn-play">Open Journal</a>
+                <a href="WorkJournal.HTML" download="WorkJournal.HTML" class="btn-download">Download</a>
             </div>
         </div>
 
