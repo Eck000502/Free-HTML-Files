@@ -130,6 +130,15 @@
             </div>
         </div>
 
+        <!-- The Book: Spend It Twice -->
+        <div class="Book">
+            <span class="game-title">Spend_It_Twice</span>
+            <div class="actions">
+                <a href="SpendItTwice.HTML" class="btn-play">Read the book online</a>
+                <a href="SpendItTwice.HTML" download="SpendItTwice.HTML" class="btn-download">Download</a>
+            </div>
+        </div>
+
     </div>
 
 </body>
