@@ -5,14 +5,13 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Fuel Log</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com">
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
+    <link rel="preconnect" href="https://googleapis.com">
+    <link rel="preconnect" href="https://gstatic.com" crossorigin>
+    <link href="https://googleapis.com/css2?family=Inter:wght@400;500;600&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="./style.css">
 </head>
 
 <body>
-
     <div class="container">
         <div class="top">
             <div class="stats">
@@ -25,43 +24,44 @@
 
             <div class="controls" style="display: flex; gap: 8px; margin-left: auto;">
                 <button id="btn-add-note" class="btn-ghost">Add Note</button>
+                <button id="btn-import-json" class="btn-ghost">Import JSON</button>
                 <button id="btn-export-json" class="btn-ghost">Export JSON</button>
+                <input type="file" id="file-import-input" accept="application/json" style="display: none;">
             </div>
         </div>
-
         <div class="entry-editor" id="entry-editor">
             <h2 style="margin-top:0" id="editor-title">Add New Entry</h2>
             <form id="entry-form">
                 <input type="hidden" id="entry-id">
                 <input type="hidden" id="entry-is-note" value="false">
-					<div class="form-grid">
-						<label class="full-width">
-							Date
-							<input type="date" id="entry-date" required>
-						</label>
 
-						<div class="compact-row">
-							<label class="compact-field">
-								Odometer
-								<input type="number" id="entry-odometer" required min="0" step="1">
-							</label>
+                <div class="form-grid">
+                    <label class="full-width">
+                        Date
+                        <input type="date" id="entry-date" required>
+                    </label>
 
-							<label class="compact-field">
-								Gallons
-								<input type="number" id="entry-gallons" required min="0.001" step="0.001">
-							</label>
+                    <div class="compact-row">
+                        <label class="compact-field">
+                            Odometer
+                            <input type="number" id="entry-odometer" required min="0" step="1">
+                        </label>
 
-							<label class="compact-field">
-								Price (Total)
-								<input type="number" id="entry-price" required min="0" step="0.01">
-							</label>
-						</div>
+                        <label class="compact-field">
+                            Gallons
+                            <input type="number" id="entry-gallons" required min="0.001" step="0.001">
+                        </label>
 
-						<label class="full-width" id="trip-checkbox-container" style="display: flex; align-items: center; gap: 8px; margin-top: 8px; font-weight: 500;">
-							<input type="checkbox" id="entry-is-trip-end" style="width: auto; margin: 0;">
-							Mark this entry as a Trip End point (Calculates stats back to previous Trip End)
-						</label>
-					</div>
+                        <label class="compact-field">
+                            Price (Total)
+                            <input type="number" id="entry-price" required min="0" step="0.01">
+                        </label>
+                    </div>
+
+                    <label class="full-width" id="trip-checkbox-container" style="display: flex; align-items: center; gap: 8px; margin-top: 8px; font-weight: 500;">
+                        <input type="checkbox" id="entry-is-trip-end" style="width: auto; margin: 0;">
+                        Mark this entry as a Trip End point (Calculates stats back to previous Trip End)
+                    </label>
                 </div>
 
                 <label>
@@ -72,8 +72,7 @@
                 <div class="form-actions">
                     <button type="submit" id="btn-save">Save Entry</button>
                     <button type="button" class="btn-ghost" id="btn-cancel">Clear</button>
-                    <button type="button" id="btn-delete" title="Delete Entry"
-                        style="display:none;">Delete</button>
+                    <button type="button" id="btn-delete" title="Delete Entry" style="display:none;">Delete</button>
                 </div>
             </form>
         </div>
@@ -82,7 +81,6 @@
             <!-- Entries will be injected here -->
         </ul>
     </div>
-
     <script>
         /**
          * Fuel Log Application Logic
@@ -90,8 +88,8 @@
 
         // State
         let entries = JSON.parse(localStorage.getItem('fuel-log-entries')) || [
-            { id: '1', date: '2026-01-11', odometer: 1000, gallons: 12, price: 12, notes: '' },
-            { id: '2', date: '2026-01-11', odometer: 1001, gallons: 11, price: 11, notes: 'Refill' }
+            { id: '1', date: '2026-01-11', odometer: 1000, gallons: 12, price: 12, notes: '', isNote: false, isTripEnd: false },
+            { id: '2', date: '2026-01-11', odometer: 1001, gallons: 11, price: 11, notes: 'Refill', isNote: false, isTripEnd: false }
         ];
 
         // DOM Elements
@@ -103,41 +101,41 @@
         const btnDelete = document.getElementById('btn-delete');
         const btnExport = document.getElementById('btn-export-json');
         const btnAddNote = document.getElementById('btn-add-note');
+        const btnImport = document.getElementById('btn-import-json');
+        const fileInput = document.getElementById('file-import-input');
 
         // Init
         function init() {
             resetForm();
             render();
         }
-
         // Form Mode Helper
-		 function setFormMode(isNote) {
-			const isNoteEl = document.getElementById('entry-is-note');
-			isNoteEl.value = isNote ? 'true' : 'false';
+        function setFormMode(isNote) {
+            const isNoteEl = document.getElementById('entry-is-note');
+            isNoteEl.value = isNote ? 'true' : 'false';
 
-			const gallonsInput = document.getElementById('entry-gallons');
-			const priceInput = document.getElementById('entry-price');
-			const gallonsLabel = gallonsInput.closest('label');
-			const priceLabel = priceInput.closest('label');
-			const tripCheckboxContainer = document.getElementById('trip-checkbox-container');
+            const gallonsInput = document.getElementById('entry-gallons');
+            const priceInput = document.getElementById('entry-price');
+            const gallonsLabel = gallonsInput.closest('label');
+            const priceLabel = priceInput.closest('label');
+            const tripCheckboxContainer = document.getElementById('trip-checkbox-container');
 
-			if (isNote) {
-				editorTitleEl.innerText = document.getElementById('entry-id').value ? 'Edit Note' : 'Add New Note';
-				gallonsLabel.style.display = 'none';
-				priceLabel.style.display = 'none';
-				tripCheckboxContainer.style.display = 'none';
-				gallonsInput.removeAttribute('required');
-				priceInput.removeAttribute('required');
-			} else {
-				editorTitleEl.innerText = document.getElementById('entry-id').value ? 'Edit Entry' : 'Add New Entry';
-				gallonsLabel.style.display = 'block';
-				priceLabel.style.display = 'block';
-				tripCheckboxContainer.style.display = 'flex';
-				gallonsInput.setAttribute('required', '');
-				priceInput.setAttribute('required', '');
-			}
-		}
-
+            if (isNote) {
+                editorTitleEl.innerText = document.getElementById('entry-id').value ? 'Edit Note' : 'Add New Note';
+                gallonsLabel.style.display = 'none';
+                priceLabel.style.display = 'none';
+                tripCheckboxContainer.style.display = 'none';
+                gallonsInput.removeAttribute('required');
+                priceInput.removeAttribute('required');
+            } else {
+                editorTitleEl.innerText = document.getElementById('entry-id').value ? 'Edit Entry' : 'Add New Entry';
+                gallonsLabel.style.display = 'block';
+                priceLabel.style.display = 'block';
+                tripCheckboxContainer.style.display = 'flex';
+                gallonsInput.setAttribute('required', '');
+                priceInput.setAttribute('required', '');
+            }
+        }
         // Rendering
         function render() {
             // Sort entries by odometer descending
@@ -151,114 +149,112 @@
 
             // Render List
             listEl.innerHTML = '';
-			entries.forEach(entry => {
-				const li = document.createElement('li');
-				li.className = 'entry';
-				li.style.display = 'flex';
-				li.style.flexDirection = 'column';
-				li.style.gap = '8px';
+            entries.forEach(entry => {
+                const li = document.createElement('li');
+                li.className = 'entry';
+                li.style.display = 'flex';
+                li.style.flexDirection = 'column';
+                li.style.gap = '8px';
 
-				let mpgDisplay = '';
-				if (!entry.isNote) {
-					let prevRegularEntry = null;
-					for (let i = entries.indexOf(entry) + 1; i < entries.length; i++) {
-						if (!entries[i].isNote) {
-							prevRegularEntry = entries[i];
-							break;
-						}
-					}
-					if (prevRegularEntry) {
-						const dist = entry.odometer - prevRegularEntry.odometer;
-						if (dist > 0 && entry.gallons > 0) {
-							const mpg = dist / entry.gallons;
-							mpgDisplay = `<div class="tag">${mpg.toFixed(1)} mpg</div>`;
-						}
-					}
-				}
+                let mpgDisplay = '';
+                if (!entry.isNote) {
+                    let prevRegularEntry = null;
+                    for (let i = entries.indexOf(entry) + 1; i < entries.length; i++) {
+                        if (!entries[i].isNote) {
+                            prevRegularEntry = entries[i];
+                            break;
+                        }
+                    }
 
-				// Trip Calculation Engine
-				let tripSegmentLine = '';
-				if (entry.isTripEnd && !entry.isNote) {
-					let tripGallons = 0;
-					let tripCost = 0;
-					let startEntry = null;
-					const currentIdx = entries.indexOf(entry);
+                    if (prevRegularEntry) {
+                        const dist = entry.odometer - prevRegularEntry.odometer;
+                        if (dist > 0 && entry.gallons > 0) {
+                            const mpg = dist / entry.gallons;
+                            mpgDisplay = `<div class="tag">${mpg.toFixed(1)} mpg</div>`;
+                        }
+                    }
+                }
 
-					// Track backwards down the sorted array to find the prior trip endpoint boundary
-					for (let i = currentIdx + 1; i < entries.length; i++) {
-						if (!entries[i].isNote) {
-							tripGallons += Number(entries[i-1].gallons);
-							tripCost += Number(entries[i-1].price);
-							if (entries[i].isTripEnd || i === entries.length - 1) {
-								startEntry = entries[i];
-								break;
-							}
-						}
-					}
+                // Trip Calculation Engine
+                let tripSegmentLine = '';
+                if (entry.isTripEnd && !entry.isNote) {
+                    let tripGallons = 0;
+                    let tripCost = 0;
+                    let startEntry = null;
+                    const currentIdx = entries.indexOf(entry);
 
-					// Complete data set for the segment found
-					if (startEntry) {
-						const tripDist = entry.odometer - startEntry.odometer;
-						const tripMpg = tripGallons > 0 ? (tripDist / tripGallons).toFixed(2) : '0.00';
-						tripSegmentLine = `
-							<div style="margin-top: 4px; padding: 8px 12px; background: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 4px; font-size: 0.85rem; color: #14532d; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
-								<strong>🚩 Trip Summary Line:</strong>
-								<span>Distance: <b>${tripDist.toLocaleString()} mi</b></span>
-								<span>Total Cost: <b>$${tripCost.toFixed(2)}</b></span>
-								<span>Trip Economy: <b>${tripMpg} MPG</b></span>
-							</div>
-						`;
-					}
-				}
+                    for (let i = currentIdx + 1; i < entries.length; i++) {
+                        if (!entries[i].isNote) {
+                            tripGallons += Number(entries[i-1].gallons);
+                            tripCost += Number(entries[i-1].price);
+                            if (entries[i].isTripEnd || i === entries.length - 1) {
+                                startEntry = entries[i];
+                                break;
+                            }
+                        }
+                    }
 
-				if (entry.isNote) {
-					li.innerHTML = `
-					<div style="display:flex; justify-content:space-between; width:100%;">
-						<div class="entry-left">
-							<div class="entry-meta">
-								<strong>${entry.date}</strong>
-								<span>${Number(entry.odometer).toLocaleString()} mi</span>
-								<span style="background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">Note</span>
-							</div>
-							${entry.notes ? `<div class="small" style="margin-top: 4px; font-style: italic;">${entry.notes}</div>` : ''}
-						</div>
-						<div class="entry-right">
-							<div class="entry-actions">
-								<button class="btn-ghost" onclick="editEntry('${entry.id}')">Edit</button>
-							</div>
-						</div>
-					</div>`;
-				} else {
-					const pricePerGallon = (entry.gallons > 0 && entry.price > 0)
-						? (entry.price / entry.gallons).toFixed(3)
-						: '0.000';
+                    if (startEntry) {
+                        const tripDist = entry.odometer - startEntry.odometer;
+                        const tripMpg = tripGallons > 0 ? (tripDist / tripGallons).toFixed(2) : '0.00';
+                        tripSegmentLine = `
+                            <div style="margin-top: 4px; padding: 8px 12px; background: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 4px; font-size: 0.85rem; color: #14532d; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
+                                <strong>🚩 Trip Summary Line:</strong>
+                                <span>Distance: <b>${tripDist.toLocaleString()} mi</b></span>
+                                <span>Total Cost: <b>$${tripCost.toFixed(2)}</b></span>
+                                <span>Trip Economy: <b>${tripMpg} MPG</b></span>
+                            </div>
+                        `;
+                    }
+                }
 
-					li.innerHTML = `
-					<div style="display:flex; justify-content:space-between; width:100%;">
-						<div class="entry-left">
-							<div class="entry-meta">
-								<strong>${entry.date}</strong>
-								<span>${Number(entry.odometer).toLocaleString()} mi</span>
-								${entry.isTripEnd ? '<span style="background: #dcfce7; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">Trip End Point</span>' : ''}
-							</div>
-							${entry.notes ? `<div class="small">${entry.notes}</div>` : ''}
-						</div>
-						<div class="entry-right" style="text-align: right;">
-							<div class="entry-actions" style="display: flex; gap: 4px; justify-content: flex-end; align-items: center;">
-								${mpgDisplay}
-								<button class="btn-ghost" onclick="editEntry('${entry.id}')">Edit</button>
-							</div>
-							<div class="small">$${Number(entry.price).toFixed(2)} • ${Number(entry.gallons).toFixed(3)} gal</div>
-							<div class="small" style="color:#666; font-size:0.85rem;">$${pricePerGallon}/gal</div>
-						</div>
-					</div>
-					${tripSegmentLine}`;
-				}
-				listEl.appendChild(li);
-			});
+                if (entry.isNote) {
+                    li.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; width:100%;">
+                        <div class="entry-left">
+                            <div class="entry-meta">
+                                <strong>${entry.date}</strong>
+                                <span>${Number(entry.odometer).toLocaleString()} mi</span>
+                                <span style="background: #f1f5f9; color: #475569; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">Note</span>
+                            </div>
+                            ${entry.notes ? `<div class="small" style="margin-top: 4px; font-style: italic;">${entry.notes}</div>` : ''}
+                        </div>
+                        <div class="entry-right">
+                            <div class="entry-actions">
+                                <button class="btn-ghost" onclick="editEntry('${entry.id}')">Edit</button>
+                            </div>
+                        </div>
+                    </div>`;
+                } else {
+                    const pricePerGallon = (entry.gallons > 0 && entry.price > 0)
+                        ? (entry.price / entry.gallons).toFixed(3)
+                        : '0.000';
 
+                    li.innerHTML = `
+                    <div style="display:flex; justify-content:space-between; width:100%;">
+                        <div class="entry-left">
+                            <div class="entry-meta">
+                                <strong>${entry.date}</strong>
+                                <span>${Number(entry.odometer).toLocaleString()} mi</span>
+                                ${entry.isTripEnd ? '<span style="background: #dcfce7; color: #16a34a; padding: 2px 8px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; margin-left: 8px;">Trip End Point</span>' : ''}
+                            </div>
+                            ${entry.notes ? `<div class="small">${entry.notes}</div>` : ''}
+                        </div>
+                        <div class="entry-right" style="text-align: right;">
+                            <div class="entry-actions" style="display: flex; gap: 4px; justify-content: flex-end; align-items: center;">
+                                ${mpgDisplay}
+                                <button class="btn-ghost" onclick="editEntry('${entry.id}')">Edit</button>
+                            </div>
+                            <div class="small">$${Number(entry.price).toFixed(2)} • ${Number(entry.gallons).toFixed(3)} gal</div>
+                            <div class="small" style="color:#666; font-size:0.85rem;">$${pricePerGallon}/gal</div>
+                        </div>
+                    </div>
+                    ${tripSegmentLine}`;
+                }
+                listEl.appendChild(li);
+            });
+        }
         function updateStats() {
-            // Filter out note entries for overall MPG stats
             const regularEntries = entries.filter(e => !e.isNote);
 
             if (regularEntries.length < 2) {
@@ -284,62 +280,61 @@
         }
 
         // Actions
-		function resetForm() {
-			formEl.reset();
-			document.getElementById('entry-id').value = '';
-			document.getElementById('entry-is-note').value = 'false';
-			document.getElementById('entry-is-trip-end').checked = false;
-			document.getElementById('entry-date').value = new Date().toISOString().split('T')[0];
-			setFormMode(false);
-			btnDelete.style.display = 'none';
-			btnCancel.innerText = 'Clear';
-		}
+        function resetForm() {
+            formEl.reset();
+            document.getElementById('entry-id').value = '';
+            document.getElementById('entry-is-note').value = 'false';
+            document.getElementById('entry-is-trip-end').checked = false;
+            document.getElementById('entry-date').value = new Date().toISOString().split('T')[0];
+            setFormMode(false);
+            btnDelete.style.display = 'none';
+            btnCancel.innerText = 'Clear';
+        }
 
-		function editEntry(id) {
-			const entry = entries.find(x => x.id === id);
-			if (entry) {
-				document.getElementById('entry-id').value = entry.id;
-				document.getElementById('entry-is-note').value = entry.isNote ? 'true' : 'false';
-				document.getElementById('entry-date').value = entry.date;
-				document.getElementById('entry-odometer').value = entry.odometer;
-				document.getElementById('entry-gallons').value = entry.isNote ? '' : entry.gallons;
-				document.getElementById('entry-price').value = entry.isNote ? '' : entry.price;
-				document.getElementById('entry-notes').value = entry.notes || '';
-				document.getElementById('entry-is-trip-end').checked = !!entry.isTripEnd;
-				
-				setFormMode(!!entry.isNote);
+        function editEntry(id) {
+            const entry = entries.find(x => x.id === id);
+            if (entry) {
+                document.getElementById('entry-id').value = entry.id;
+                document.getElementById('entry-is-note').value = entry.isNote ? 'true' : 'false';
+                document.getElementById('entry-date').value = entry.date;
+                document.getElementById('entry-odometer').value = entry.odometer;
+                document.getElementById('entry-gallons').value = entry.isNote ? '' : entry.gallons;
+                document.getElementById('entry-price').value = entry.isNote ? '' : entry.price;
+                document.getElementById('entry-notes').value = entry.notes || '';
+                document.getElementById('entry-is-trip-end').checked = !!entry.isTripEnd;
+                
+                setFormMode(!!entry.isNote);
 
-				btnDelete.style.display = 'block';
-				btnCancel.innerText = 'Cancel';
-				window.scrollTo({ top: 0, behavior: 'smooth' });
-			}
-		}
+                btnDelete.style.display = 'block';
+                btnCancel.innerText = 'Cancel';
+                window.scrollTo({ top: 0, behavior: 'smooth' });
+            }
+        }
+        function saveEntry(e) {
+            e.preventDefault();
+            const id = document.getElementById('entry-id').value;
+            const isNote = document.getElementById('entry-is-note').value === 'true';
+            const data = {
+                id: id || Date.now().toString(),
+                date: document.getElementById('entry-date').value,
+                odometer: Number(document.getElementById('entry-odometer').value),
+                gallons: isNote ? 0 : Number(document.getElementById('entry-gallons').value),
+                price: isNote ? 0 : Number(document.getElementById('entry-price').value),
+                notes: document.getElementById('entry-notes').value,
+                isNote: isNote,
+                isTripEnd: isNote ? false : document.getElementById('entry-is-trip-end').checked
+            };
 
-		function saveEntry(e) {
-			e.preventDefault();
-			const id = document.getElementById('entry-id').value;
-			const isNote = document.getElementById('entry-is-note').value === 'true';
-			const data = {
-				id: id || Date.now().toString(),
-				date: document.getElementById('entry-date').value,
-				odometer: Number(document.getElementById('entry-odometer').value),
-				gallons: isNote ? 0 : Number(document.getElementById('entry-gallons').value),
-				price: isNote ? 0 : Number(document.getElementById('entry-price').value),
-				notes: document.getElementById('entry-notes').value,
-				isNote: isNote,
-				isTripEnd: isNote ? false : document.getElementById('entry-is-trip-end').checked
-			};
+            if (id) {
+                const idx = entries.findIndex(x => x.id === id);
+                if (idx !== -1) entries[idx] = data;
+            } else {
+                entries.push(data);
+            }
 
-			if (id) {
-				const idx = entries.findIndex(x => x.id === id);
-				if (idx !== -1) entries[idx] = data;
-			} else {
-				entries.push(data);
-			}
-
-			render();
-			resetForm();
-		}
+            render();
+            resetForm();
+        }
 
         function deleteEntry() {
             if (!confirm('Are you sure you want to delete this entry?')) return;
@@ -348,7 +343,6 @@
             render();
             resetForm();
         }
-
         // Events
         btnCancel.addEventListener('click', resetForm);
         formEl.addEventListener('submit', saveEntry);
@@ -358,11 +352,9 @@
             resetForm();
             setFormMode(true);
 
-            // Capture current date
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('entry-date').value = today;
 
-            // Capture latest mileage
             if (entries.length > 0) {
                 const maxOdom = Math.max(...entries.map(e => e.odometer));
                 document.getElementById('entry-odometer').value = maxOdom;
@@ -372,6 +364,50 @@
 
             document.getElementById('entry-notes').focus();
             window.scrollTo({ top: 0, behavior: 'smooth' });
+        });
+
+        // Click wrapper logic routing the UI button tap to trigger hidden file picking selector
+        btnImport.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        // Fixed File Input handling engine targeting isolated index instances
+        fileInput.addEventListener('change', (event) => {
+            const files = event.target.files;
+            if (!files || files.length === 0) return;
+            const file = files[0];
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                try {
+                    const parsedData = JSON.parse(e.target.result);
+                    if (!Array.isArray(parsedData)) {
+                        throw new Error("Invalid format: Root elements must be an array.");
+                    }
+
+                    if (confirm(`Found ${parsedData.length} records. Do you want to merge these into your current log? (Canceling will completely overwrite current data).`)) {
+                        parsedData.forEach(newEntry => {
+                            const existingIdx = entries.findIndex(x => x.id === newEntry.id);
+                            if (existingIdx !== -1) {
+                                entries[existingIdx] = newEntry;
+                            } else {
+                                entries.push(newEntry);
+                            }
+                        });
+                    } else {
+                        entries = parsedData;
+                    }
+
+                    render();
+                    resetForm();
+                    alert("Fuel log data imported successfully!");
+                } catch (error) {
+                    alert("Failed to parse JSON file. Please ensure it matches a valid exported format.");
+                    console.error(error);
+                }
+                fileInput.value = '';
+            };
+            reader.readAsText(file);
         });
 
         // Quick Export
@@ -387,7 +423,6 @@
 
         // Run
         init();
-
     </script>
 </body>
 
