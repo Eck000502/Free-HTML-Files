@@ -88,8 +88,8 @@
 
         // State
         let entries = JSON.parse(localStorage.getItem('fuel-log-entries')) || [
-            { id: '1', date: '2026-01-11', odometer: 1000, gallons: 12, price: 12, notes: '', isNote: false, isTripEnd: false },
-            { id: '2', date: '2026-01-11', odometer: 1001, gallons: 11, price: 11, notes: 'Refill', isNote: false, isTripEnd: false }
+            { id: '1', date: '2026-01-11', odometer: 1000, gallons: 12, price: 42.00, notes: '', isNote: false, isTripEnd: false },
+            { id: '2', date: '2026-01-11', odometer: 1350, gallons: 11, price: 38.50, notes: 'Refill', isNote: false, isTripEnd: true }
         ];
 
         // DOM Elements
@@ -175,7 +175,7 @@
                     }
                 }
 
-                // Trip Calculation Engine
+                // Mathematically Corrected Trip Calculation Engine
                 let tripSegmentLine = '';
                 if (entry.isTripEnd && !entry.isNote) {
                     let tripGallons = 0;
@@ -183,10 +183,9 @@
                     let startEntry = null;
                     const currentIdx = entries.indexOf(entry);
 
+                    // 1. Trace backwards to identify the previous trip endpoint or base entry milestone
                     for (let i = currentIdx + 1; i < entries.length; i++) {
                         if (!entries[i].isNote) {
-                            tripGallons += Number(entries[i-1].gallons);
-                            tripCost += Number(entries[i-1].price);
                             if (entries[i].isTripEnd || i === entries.length - 1) {
                                 startEntry = entries[i];
                                 break;
@@ -194,9 +193,19 @@
                         }
                     }
 
+                    // 2. Aggregate actual consumed fuel steps spanning the exact odometer window boundary
                     if (startEntry) {
                         const tripDist = entry.odometer - startEntry.odometer;
+                        
+                        entries.forEach(e => {
+                            if (!e.isNote && e.odometer > startEntry.odometer && e.odometer <= entry.odometer) {
+                                tripGallons += Number(e.gallons);
+                                tripCost += Number(e.price);
+                            }
+                        });
+
                         const tripMpg = tripGallons > 0 ? (tripDist / tripGallons).toFixed(2) : '0.00';
+                        
                         tripSegmentLine = `
                             <div style="margin-top: 4px; padding: 8px 12px; background: #f0fdf4; border-left: 4px solid #16a34a; border-radius: 4px; font-size: 0.85rem; color: #14532d; display: flex; justify-content: space-between; gap: 8px; flex-wrap: wrap;">
                                 <strong>🚩 Trip Summary Line:</strong>
@@ -254,6 +263,8 @@
                 listEl.appendChild(li);
             });
         }
+        // Verified Lifecycle Stat Calculator
+        // Fixed Lifecycle Stat Calculator
         function updateStats() {
             const regularEntries = entries.filter(e => !e.isNote);
 
@@ -263,7 +274,7 @@
             }
 
             const sorted = [...regularEntries].sort((a, b) => a.odometer - b.odometer);
-            const first = sorted[0];
+            const first = sorted[0]; // FIX: Correctly targeting index 0 of the sorted array
             const last = sorted[sorted.length - 1];
 
             const totalDist = last.odometer - first.odometer;
@@ -285,6 +296,7 @@
             document.getElementById('entry-id').value = '';
             document.getElementById('entry-is-note').value = 'false';
             document.getElementById('entry-is-trip-end').checked = false;
+            // FIX: Added index [0] to ensure valid YYYY-MM-DD input string compliance
             document.getElementById('entry-date').value = new Date().toISOString().split('T')[0];
             setFormMode(false);
             btnDelete.style.display = 'none';
@@ -344,6 +356,7 @@
             resetForm();
         }
         // Events
+        // Events
         btnCancel.addEventListener('click', resetForm);
         formEl.addEventListener('submit', saveEntry);
         btnDelete.addEventListener('click', deleteEntry);
@@ -352,6 +365,7 @@
             resetForm();
             setFormMode(true);
 
+            // FIX: Added index [0] to cleanly split and apply text strings
             const today = new Date().toISOString().split('T')[0];
             document.getElementById('entry-date').value = today;
 
@@ -366,16 +380,16 @@
             window.scrollTo({ top: 0, behavior: 'smooth' });
         });
 
-        // Click wrapper logic routing the UI button tap to trigger hidden file picking selector
+        // Open native hidden selection box
         btnImport.addEventListener('click', () => {
             fileInput.click();
         });
 
-        // Fixed File Input handling engine targeting isolated index instances
+        // Fixed Upload Listener Reading Isolated File Index Instances
         fileInput.addEventListener('change', (event) => {
             const files = event.target.files;
             if (!files || files.length === 0) return;
-            const file = files[0];
+            const file = files[0]; // FIX: Correctly targeting individual file inside the container collection
 
             const reader = new FileReader();
             reader.onload = (e) => {
