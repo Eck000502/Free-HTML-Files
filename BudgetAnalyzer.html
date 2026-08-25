@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Budget Analyzer</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            min-height: 100vh;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+
+        .container {
+            background: white;
+            border-radius: 15px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.3);
+            padding: 30px;
+            max-width: 500px;
+            width: 100%;
+        }
+
+        h1 {
+            text-align: center;
+            color: #333;
+            margin-bottom: 30px;
+            font-size: 28px;
+        }
+
+        .balance-section {
+            background: #f8f9fa;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-left: 5px solid #667eea;
+        }
+
+        .balance-label {
+            font-size: 14px;
+            color: #666;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .balance-amount {
+            font-size: 36px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .balance-amount.surplus { color: #28a745; }
+        .balance-amount.deficit { color: #dc3545; }
+
+        .income-section, .expenses-section {
+            margin-bottom: 30px;
+        }
+
+        .section-title {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 15px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            border-bottom: 2px solid #667eea;
+            padding-bottom: 10px;
+            margin-top: 15px;
+        }
+
+        .input-group {
+            margin-bottom: 15px;
+            display: flex;
+            flex-direction: column;
+        }
+
+        label {
+            font-size: 14px;
+            font-weight: 500;
+            color: #555;
+            margin-bottom: 5px;
+        }
+
+        input[type="number"], input[type="text"], select {
+            padding: 10px;
+            border: 1px solid #ddd;
+            border-radius: 6px;
+            font-size: 14px;
+            transition: border-color 0.3s;
+            width: 100%;
+            background-color: white;
+        }
+
+        input[type="number"]:focus, input[type="text"]:focus, select:focus {
+            outline: none;
+            border-color: #667eea;
+            box-shadow: 0 0 5px rgba(102, 126, 234, 0.3);
+        }
+
+        .paycheck-section {
+            background: #e8f5e9;
+            border-radius: 10px;
+            padding: 20px;
+            margin-bottom: 30px;
+            border-left: 5px solid #28a745;
+        }
+
+        .paycheck-label {
+            font-size: 12px;
+            color: #2e7d32;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 10px;
+        }
+
+        .paycheck-info {
+            font-size: 12px;
+            color: #558b2f;
+            margin-bottom: 10px;
+            font-style: italic;
+        }
+
+        .paycheck-breakdown {
+            display: flex;
+            flex-direction: column;
+            gap: 10px;
+        }
+
+        .paycheck-item {
+            display: flex;
+            justify-content: space-between;
+            font-size: 13px;
+            color: #333;
+        }
+
+        .paycheck-item-label { font-weight: 500; }
+        .paycheck-item-amount { color: #2e7d32; font-weight: 600; }
+
+        .expense-item {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 4px;
+            align-items: center;
+        }
+
+        .expense-item label, .expense-item .custom-label-input {
+            flex: 1;
+            margin: 0;
+            font-size: 13px;
+        }
+
+        .expense-item input[type="number"] {
+            flex: 0 0 110px;
+            margin: 0;
+        }
+
+        .expense-item-perpayday {
+            display: flex;
+            justify-content: flex-end;
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 12px;
+            padding-right: 10px;
+        }
+
+        .expense-item-perpayday span {
+            font-size: 11px;
+            color: #999;
+            font-style: italic;
+        }
+
+        .total-summary-box {
+            margin-top: 25px;
+            border-radius: 6px;
+            overflow: hidden;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+        }
+
+        .total-expenses {
+            background: #f0f0f0;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            color: #333;
+            border-bottom: 1px solid #ddd;
+        }
+
+        .total-expenses span:last-child { color: #dc3545; }
+
+        .total-income {
+            background: #f0f0f0;
+            padding: 12px;
+            display: flex;
+            justify-content: space-between;
+            font-weight: 600;
+            color: #333;
+        }
+
+        .total-income span:last-child { color: #28a745; }
+
+        .button-group {
+            display: flex;
+            gap: 10px;
+            margin-top: 20px;
+        }
+
+        button {
+            flex: 1;
+            padding: 12px;
+            border: none;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .reset-btn { background: #6c757d; color: white; }
+        .reset-btn:hover { background: #5a6268; transform: translateY(-2px); }
+
+        .export-btn { background: #667eea; color: white; }
+        .export-btn:hover { background: #5568d3; transform: translateY(-2px); }
+
+        @media (max-width: 480px) {
+            .container { padding: 20px; }
+            h1 { font-size: 24px; margin-bottom: 20px; }
+            .balance-amount { font-size: 28px; }
+            .expense-item input[type="number"] { flex: 0 0 95px; }
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>💰 Budget Analyzer</h1>
+
+        <!-- Income Section -->
+        <div class="income-section">
+            <div class="section-title">Income</div>
+            <div class="input-group">
+                <label for="income">Payday Amount</label>
+                <input type="number" id="income" placeholder="0.00" step="0.01" min="0" inputmode="decimal">
+            </div>
+            <div class="input-group">
+                <label for="frequency">Pay Frequency</label>
+                <select id="frequency">
+                    <option value="weekly">Weekly (4 payments/month)</option>
+                    <option value="biweekly">Every Other Week (2 payments/month)</option>
+                    <option value="semimonthly">Semi-Monthly (2 payments/month)</option>
+                </select>
+            </div>
+        </div>
+
+        <!-- Per Payday Breakdown Section -->
+        <div class="paycheck-section">
+            <div class="paycheck-label">Per Payday Breakdown</div>
+            <div class="paycheck-info" id="frequencyDisplay">Frequency: Weekly</div>
+            <div class="paycheck-breakdown">
+                <div class="paycheck-item">
+                    <span class="paycheck-item-label">Gross Pay:</span>
+                    <span class="paycheck-item-amount" id="paydayIncome">$0.00</span>
+                </div>
+                <div class="paycheck-item">
+                    <span class="paycheck-item-label">Expenses per Payday:</span>
+                    <span class="paycheck-item-amount" id="paydayExpenses">$0.00</span>
+                </div>
+                <div style="border-top: 1px solid rgba(46, 125, 50, 0.3); padding-top: 10px; margin-top: 10px;">
+                    <div class="paycheck-item">
+                        <span class="paycheck-item-label" style="font-weight: bold;">Balance per Payday:</span>
+                        <span class="paycheck-item-amount" style="font-weight: bold; font-size: 14px;" id="paydayBalance">$0.00</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Monthly Expenses Section -->
+        <div class="expenses-section">
+            <div class="section-title">Monthly Expenses</div>
+            <div id="monthly-container">
+                <div class="expense-item"><label for="rent">Rent</label><input type="number" id="rent" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="rent-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="car">Car Payment</label><input type="number" id="car" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="car-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="phone">Phone</label><input type="number" id="phone" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="phone-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="water">Water</label><input type="number" id="water" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="water-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="electric">Electric</label><input type="number" id="electric" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="electric-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="internet">Internet</label><input type="number" id="internet" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="internet-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="groceries">Groceries</label><input type="number" id="groceries" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="groceries-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="insurance">Insurance</label><input type="number" id="insurance" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="insurance-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="gas">Gas/Fuel</label><input type="number" id="gas" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="gas-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="other">Other</label><input type="number" id="other" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="other-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="safeaccount">SAFE Account</label><input type="number" id="safeaccount" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="safeaccount-pp">Per Payday: $0.00</span></div>
+            </div>
+            <div id="dynamic-monthly-container"></div>
+        </div>
+
+        <!-- Semi-Annual Expenses Section -->
+        <div class="expenses-section">
+            <div class="section-title">Semi-Annual Expenses (Every 6 Mos)</div>
+            <div id="semiannual-container">
+                <div class="expense-item"><label for="sa-insurance">Insurance</label><input type="number" id="sa-insurance" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="sa-insurance-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="sa-other">Other</label><input type="number" id="sa-other" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="sa-other-pp">Per Payday: $0.00</span></div>
+            </div>
+            <div id="dynamic-sa-container"></div>
+        </div>
+
+        <!-- Yearly Expenses Section -->
+        <div class="expenses-section">
+            <div class="section-title">Yearly Expenses</div>
+            <div id="yearly-container">
+                <div class="expense-item"><label for="yr-plates">License Plates</label><input type="number" id="yr-plates" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="yr-plates-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="yr-insurance">Insurance</label><input type="number" id="yr-insurance" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="yr-insurance-pp">Per Payday: $0.00</span></div>
+
+                <div class="expense-item"><label for="yr-other">Other</label><input type="number" id="yr-other" placeholder="0.00" step="0.01" min="0" inputmode="decimal"></div>
+                <div class="expense-item-perpayday"><span id="yr-other-pp">Per Payday: $0.00</span></div>
+            </div>
+            <div id="dynamic-yr-container"></div>
+        </div>
+
+        <!-- Summary Statistics Board -->
+        <div class="total-summary-box">
+            <div class="total-income">
+                <span>Total Monthly Income:</span>
+                <span id="totalIncome">$0.00</span>
+            </div>
+            <div class="total-expenses">
+                <span>Total Budgeted Expenses/Mo:</span>
+                <span id="totalExpenses">$0.00</span>
+            </div>
+        </div>
+
+        <!-- Dashboard Display Banner -->
+        <div class="balance-section" style="margin-top: 15px;">
+            <div class="balance-label" id="balanceLabel">Budget Surplus</div>
+            <div class="balance-amount" id="balanceDisplay">
+                <span id="balanceAmount">$0.00</span>
+            </div>
+        </div>
+
+        <!-- Control Actions Button Layout -->
+        <div class="button-group">
+            <button class="reset-btn" onclick="resetBudget()">Reset</button>
+            <button class="export-btn" onclick="exportBudget()">Export</button>
+        </div>
+    </div>
+    <script>
+        const incomeInput = document.getElementById('income');
+        const frequencySelect = document.getElementById('frequency');
+
+        const staticMonthlyIds = ['rent','car','phone','water','electric','internet','groceries','insurance','gas','other','safeaccount'];
+        const staticSaIds = ['sa-insurance', 'sa-other'];
+        const staticYrIds = ['yr-plates', 'yr-insurance', 'yr-other'];
+
+        let dynamicMonthlyRows = [];
+        let dynamicSaRows = [];
+        let dynamicYrRows = [];
+
+        function getPaymentMultiplier() {
+            return frequencySelect.value === 'weekly' ? 4 : 2;
+        }
+
+        function getFrequencyText() {
+            const freq = frequencySelect.value;
+            if (freq === 'weekly') return 'Weekly (4 payments per month)';
+            if (freq === 'biweekly') return 'Every Other Week (2 payments per month)';
+            if (freq === 'semimonthly') return 'Semi-Monthly (2 payments per month)';
+            return 'Weekly';
+        }
+
+        function createDynamicRow(containerId, listArray, typePrefix) {
+            const container = document.getElementById(containerId);
+            const index = listArray.length;
+            const rowId = `${typePrefix}-custom-${index}`;
+
+            const itemDiv = document.createElement('div');
+            itemDiv.className = 'expense-item';
+            itemDiv.style.marginTop = '8px';
+
+            const labelInput = document.createElement('input');
+            labelInput.type = 'text';
+            labelInput.className = 'custom-label-input';
+            labelInput.placeholder = 'Custom Label Name...';
+            labelInput.id = `${rowId}-label`;
+
+            const valInput = document.createElement('input');
+            valInput.type = 'number';
+            valInput.placeholder = '0.00';
+            valInput.step = '0.01';
+            valInput.min = '0';
+            valInput.setAttribute('inputmode', 'decimal');
+            valInput.id = `${rowId}-val`;
+
+            itemDiv.appendChild(labelInput);
+            itemDiv.appendChild(valInput);
+
+            const ppDiv = document.createElement('div');
+            ppDiv.className = 'expense-item-perpayday';
+            ppDiv.innerHTML = `<span id="${rowId}-pp">Per Payday: $0.00</span>`;
+
+            container.appendChild(itemDiv);
+            container.appendChild(ppDiv);
+
+            listArray.push({ id: rowId, labelInput, valInput });
+
+            valInput.addEventListener('input', () => {
+                checkAndGrowDynamic(containerId, listArray, typePrefix);
+                updateBalance();
+            });
+            labelInput.addEventListener('input', updateBalance);
+        }
+
+        function checkAndGrowDynamic(containerId, listArray, typePrefix) {
+            if (listArray.length === 0) {
+                createDynamicRow(containerId, listArray, typePrefix);
+                return;
+            }
+            if (listArray[listArray.length - 1].valInput.value !== '') {
+                createDynamicRow(containerId, listArray, typePrefix);
+            }
+        }
+        function updateBalance() {
+            const paydayAmount = parseFloat(incomeInput.value) || 0;
+            const multiplier = getPaymentMultiplier();
+            const monthlyIncome = paydayAmount * multiplier;
+            let totalExpenses = 0;
+
+            staticMonthlyIds.forEach(id => {
+                const val = parseFloat(document.getElementById(id).value) || 0;
+                totalExpenses += val;
+                document.getElementById(id + '-pp').textContent = 'Per Payday: $' + (val / multiplier).toFixed(2);
+            });
+
+            dynamicMonthlyRows.forEach(row => {
+                const val = parseFloat(row.valInput.value) || 0;
+                totalExpenses += val;
+                document.getElementById(row.id + '-pp').textContent = 'Per Payday: $' + (val / multiplier).toFixed(2);
+            });
+
+            staticSaIds.forEach(id => {
+                const val = parseFloat(document.getElementById(id).value) || 0;
+                const monthlyWeight = val / 6;
+                totalExpenses += monthlyWeight;
+                document.getElementById(id + '-pp').textContent = 'Per Payday: $' + (monthlyWeight / multiplier).toFixed(2);
+            });
+
+            dynamicSaRows.forEach(row => {
+                const val = parseFloat(row.valInput.value) || 0;
+                const monthlyWeight = val / 6;
+                totalExpenses += monthlyWeight;
+                document.getElementById(row.id + '-pp').textContent = 'Per Payday: $' + (monthlyWeight / multiplier).toFixed(2);
+            });
+
+            staticYrIds.forEach(id => {
+                const val = parseFloat(document.getElementById(id).value) || 0;
+                const monthlyWeight = val / 12;
+                totalExpenses += monthlyWeight;
+                document.getElementById(id + '-pp').textContent = 'Per Payday: $' + (monthlyWeight / multiplier).toFixed(2);
+            });
+
+            dynamicYrRows.forEach(row => {
+                const val = parseFloat(row.valInput.value) || 0;
+                const monthlyWeight = val / 12;
+                totalExpenses += monthlyWeight;
+                document.getElementById(row.id + '-pp').textContent = 'Per Payday: $' + (monthlyWeight / multiplier).toFixed(2);
+            });
+
+            const monthlyBalance = monthlyIncome - totalExpenses;
+            document.getElementById('balanceAmount').textContent = (monthlyBalance < 0 ? '-' : '') + '$' + Math.abs(monthlyBalance).toFixed(2);
+            document.getElementById('balanceDisplay').className = 'balance-amount ' + (monthlyBalance >= 0 ? 'surplus' : 'deficit');
+            document.getElementById('balanceLabel').textContent = monthlyBalance >= 0 ? 'Budget Surplus' : 'Budget Deficit';
+
+            document.getElementById('totalIncome').textContent = '$' + monthlyIncome.toFixed(2);
+            document.getElementById('totalExpenses').textContent = '$' + totalExpenses.toFixed(2);
+
+            const paydayExpenses = totalExpenses / multiplier;
+            const paydayBalance = paydayAmount - paydayExpenses;
+
+            document.getElementById('frequencyDisplay').textContent = 'Frequency: ' + getFrequencyText();
+            document.getElementById('paydayIncome').textContent = '$' + paydayAmount.toFixed(2);
+            document.getElementById('paydayExpenses').textContent = '$' + paydayExpenses.toFixed(2);
+            
+            const pBalEl = document.getElementById('paydayBalance');
+            pBalEl.textContent = (paydayBalance < 0 ? '-' : '') + '$' + Math.abs(paydayBalance).toFixed(2);
+            pBalEl.style.color = paydayBalance >= 0 ? '#28a745' : '#dc3545';
+
+            saveData();
+        }
+
+        // Attach static events
+        incomeInput.addEventListener('input', updateBalance);
+        frequencySelect.addEventListener('change', updateBalance);
+        [...staticMonthlyIds, ...staticSaIds, ...staticYrIds].forEach(id => {
+            document.getElementById(id).addEventListener('input', updateBalance);
+        });
+        function resetBudget() {
+            if (confirm('Are you sure you want to reset all values?')) {
+                incomeInput.value = '';
+                frequencySelect.value = 'weekly';
+                [...staticMonthlyIds, ...staticSaIds, ...staticYrIds].forEach(id => document.getElementById(id).value = '');
+                
+                document.getElementById('dynamic-monthly-container').innerHTML = '';
+                document.getElementById('dynamic-sa-container').innerHTML = '';
+                document.getElementById('dynamic-yr-container').innerHTML = '';
+                
+                dynamicMonthlyRows = []; dynamicSaRows = []; dynamicYrRows = [];
+                localStorage.removeItem('budgetDataV3');
+                
+                checkAndGrowDynamic('dynamic-monthly-container', dynamicMonthlyRows, 'mo');
+                checkAndGrowDynamic('dynamic-sa-container', dynamicSaRows, 'sa');
+                checkAndGrowDynamic('dynamic-yr-container', dynamicYrRows, 'yr');
+                updateBalance();
+            }
+        }
+
+        function exportBudget() {
+            const paydayAmount = parseFloat(incomeInput.value) || 0;
+            const multiplier = getPaymentMultiplier();
+            let txt = `BUDGET REPORT\nGenerated: ${new Date().toLocaleDateString()}\n\n`;
+            txt += `Monthly Income: $${(paydayAmount * multiplier).toFixed(2)}\n\nEXPENSES:\n`;
+            
+            staticMonthlyIds.forEach(id => {
+                const val = parseFloat(document.getElementById(id).value) || 0;
+                if(val > 0) txt += `  ${id.toUpperCase()}: $${val.toFixed(2)}\n`;
+            });
+            dynamicMonthlyRows.forEach(r => {
+                const val = parseFloat(r.valInput.value) || 0;
+                if(val > 0) txt += `  ${r.labelInput.value || 'Custom'}: $${val.toFixed(2)}\n`;
+            });
+
+            const blob = new Blob([txt], { type: 'text/plain' });
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `budget_report.txt`;
+            a.click();
+        }
+
+        function saveData() {
+            const data = {
+                income: incomeInput.value, frequency: frequencySelect.value,
+                staticM: {}, staticS: {}, staticY: {}, dynM: [], dynS: [], dynY: []
+            };
+            staticMonthlyIds.forEach(id => data.staticM[id] = document.getElementById(id).value);
+            staticSaIds.forEach(id => data.staticS[id] = document.getElementById(id).value);
+            staticYrIds.forEach(id => data.staticY[id] = document.getElementById(id).value);
+            dynamicMonthlyRows.forEach(r => data.dynM.push({ l: r.labelInput.value, v: r.valInput.value }));
+            dynamicSaRows.forEach(r => data.dynS.push({ l: r.labelInput.value, v: r.valInput.value }));
+            dynamicYrRows.forEach(r => data.dynY.push({ l: r.labelInput.value, v: r.valInput.value }));
+            localStorage.setItem('budgetDataV3', JSON.stringify(data));
+        }
+
+        function loadData() {
+            const saved = localStorage.getItem('budgetDataV3');
+            if (!saved) {
+                checkAndGrowDynamic('dynamic-monthly-container', dynamicMonthlyRows, 'mo');
+                checkAndGrowDynamic('dynamic-sa-container', dynamicSaRows, 'sa');
+                checkAndGrowDynamic('dynamic-yr-container', dynamicYrRows, 'yr');
+                return;
+            }
+            const data = JSON.parse(saved);
+            incomeInput.value = data.income || '';
+            frequencySelect.value = data.frequency || 'weekly';
+
+            staticMonthlyIds.forEach(id => { if(data.staticM) document.getElementById(id).value = data.staticM[id] || ''; });
+            staticSaIds.forEach(id => { if(data.staticS) document.getElementById(id).value = data.staticS[id] || ''; });
+            staticYrIds.forEach(id => { if(data.staticY) document.getElementById(id).value = data.staticY[id] || ''; });
+
+            if(data.dynM) data.dynM.forEach(item => { createDynamicRow('dynamic-monthly-container', dynamicMonthlyRows, 'mo'); const r = dynamicMonthlyRows[dynamicMonthlyRows.length-1]; r.labelInput.value = item.l; r.valInput.value = item.v; });
+            if(data.dynS) data.dynS.forEach(item => { createDynamicRow('dynamic-sa-container', dynamicSaRows, 'sa'); const r = dynamicSaRows[dynamicSaRows.length-1]; r.labelInput.value = item.l; r.valInput.value = item.v; });
+            if(data.dynY) data.dynY.forEach(item => { createDynamicRow('dynamic-yr-container', dynamicYrRows, 'yr'); const r = dynamicYrRows[dynamicYrRows.length-1]; r.labelInput.value = item.l; r.valInput.value = item.v; });
+
+            checkAndGrowDynamic('dynamic-monthly-container', dynamicMonthlyRows, 'mo');
+            checkAndGrowDynamic('dynamic-sa-container', dynamicSaRows, 'sa');
+            checkAndGrowDynamic('dynamic-yr-container', dynamicYrRows, 'yr');
+            updateBalance();
+        }
+
+        window.addEventListener('load', loadData);
+    </script>
+</body>
+</html>
