@@ -1,0 +1,227 @@
+<!DOCTYPE NETSCAPE-Bookmark-file-1>
+<html>
+<head>
+  <title>My Bookmarks Manager</title>
+  <style>
+    body { font-family: sans-serif; margin: 20px; background: #fff; color: #333; }
+    h1 { display: inline-block; vertical-align: middle; margin-right: 20px; }
+    .controls-bar { display: inline-block; vertical-align: middle; margin-bottom: 10px; }
+    
+    /* Control Buttons */
+    .btn {
+      cursor: pointer; padding: 4px 10px; font-size: 13px; border: 1px solid #bbb;
+      background: #f6f6f6; border-radius: 4px; margin-right: 5px; font-weight: bold;
+    }
+    .btn:active { transform: translateY(1px); }
+    .btn-add { background: #eaffea; color: #064; border-color: #2b7; }
+    .btn-json { background: #eef7ff; color: #048; border-color: #8bc; }
+    
+    /* List Layouts */
+    .section-container { margin-bottom: 25px; border-left: 3px solid #ddd; padding-left: 15px; }
+    .section-header { display: flex; align-items: center; margin: 10px 0 5px 0; }
+    .section-title { font-size: 1.17em; font-weight: bold; margin: 0; }
+    .entry-list { list-style: none; padding-left: 20px; margin: 5px 0; }
+    .entry-item { margin: 6px 0; display: flex; align-items: flex-start; flex-wrap: wrap; }
+    .entry-content { display: inline-block; }
+    .entry-note { font-size: 13px; color: #666; margin: 2px 0 0 0; width: 100%; padding-left: 5px; }
+    
+    /* Inline Action Controls */
+    .action-controls { display: inline-flex; gap: 3px; margin: 0 8px; vertical-align: middle; }
+    .action-btn {
+      cursor: pointer; padding: 1px 5px; font-size: 11px; border: 1px solid #ccc;
+      background: #fafafa; border-radius: 3px; line-height: 1;
+    }
+    .action-btn:active { transform: translateY(1px); }
+    .btn-del { border-color: #d66; background: #ffdede; color: #900; }
+    .empty-msg { color: #888; font-style: italic; margin-top: 20px; }
+  </style>
+</head>
+<body>
+
+  <h1>My Bookmarks</h1>
+  <div class="controls-bar">
+    <button id="addSectionBtn" class="btn btn-add">ADD SECTION</button>
+    <button id="exportJsonBtn" class="btn btn-json">EXPORT TO JSON FILE</button>
+    <button id="importJsonBtn" class="btn btn-json">IMPORT FROM JSON FILE</button>
+    <input type="file" id="jsonFileInput" accept=".json" style="display: none;">
+  </div>
+
+  <div id="bookmarksRoot"></div>
+  <script>
+    // Completely blank initial seed array to receive your new records
+    const defaultBookmarks = [];
+
+    // Prioritizes existing browser engine storage profile, otherwise pulls from the clean baseline state
+    let bookmarkState = JSON.parse(localStorage.getItem('portable_bookmarks')) || defaultBookmarks;
+    function render() {
+      const root = document.getElementById('bookmarksRoot');
+      root.innerHTML = '';
+
+      if (bookmarkState.length === 0) {
+        root.innerHTML = '<p class="empty-msg">Your bookmarks file is empty. Click "ADD SECTION" above to start building your manager, or import an existing JSON backup.</p>';
+        return;
+      }
+
+      bookmarkState.forEach((sec, secIndex) => {
+        const secDiv = document.createElement('div');
+        secDiv.className = 'section-container';
+
+        const headerDiv = document.createElement('div');
+        headerDiv.className = 'section-header';
+
+        const title = document.createElement('h3');
+        title.className = 'section-title';
+        title.textContent = sec.section;
+        headerDiv.appendChild(title);
+
+        const controls = document.createElement('div');
+        controls.className = 'action-controls';
+        controls.innerHTML = `
+          <button class="action-btn" onclick="addEntry(${secIndex})" title="Add link to section">+</button>
+          <button class="action-btn" onclick="moveSection(${secIndex}, -1)" title="Move section up">▲</button>
+          <button class="action-btn" onclick="moveSection(${secIndex}, 1)" title="Move section down">▼</button>
+          <button class="action-btn btn-del" onclick="deleteSection(${secIndex})" title="Delete section">✖</button>
+        `;
+        headerDiv.appendChild(controls);
+        secDiv.appendChild(headerDiv);
+
+        const ul = document.createElement('ul');
+        ul.className = 'entry-list';
+
+        sec.entries.forEach((entry, entryIndex) => {
+          const li = document.createElement('li');
+          li.className = 'entry-item';
+
+          const contentDiv = document.createElement('div');
+          contentDiv.className = 'entry-content';
+
+          const link = document.createElement('a');
+          link.href = entry.url;
+          link.textContent = entry.title;
+          link.target = '_blank';
+          contentDiv.appendChild(link);
+
+          const entryControls = document.createElement('div');
+          entryControls.className = 'action-controls';
+          entryControls.innerHTML = `
+            <button class="action-btn" onclick="moveEntry(${secIndex}, ${entryIndex}, -1)" title="Move item up">▲</button>
+            <button class="action-btn" onclick="moveEntry(${secIndex}, ${entryIndex}, 1)" title="Move item down">▼</button>
+            <button class="action-btn btn-del" onclick="deleteEntry(${secIndex}, ${entryIndex})" title="Delete item">✖</button>
+          `;
+          contentDiv.appendChild(entryControls);
+          li.appendChild(contentDiv);
+
+          if (entry.note && entry.note.trim() !== '') {
+            const noteP = document.createElement('p');
+            noteP.className = 'entry-note';
+            noteP.textContent = entry.note;
+            li.appendChild(noteP);
+          }
+
+          ul.appendChild(li);
+        });
+
+        secDiv.appendChild(ul);
+        root.appendChild(secDiv);
+      });
+    }
+
+    function saveAndRefresh() {
+      localStorage.setItem('portable_bookmarks', JSON.stringify(bookmarkState));
+      render();
+    }
+    function addSection() {
+      const name = prompt('New section name:');
+      if (!name || name.trim() === '') return;
+      bookmarkState.push({ section: name.trim(), entries: [] });
+      saveAndRefresh();
+    }
+
+    function deleteSection(index) {
+      if (!confirm(`Delete section "${bookmarkState[index].section}" and all its bookmarks?`)) return;
+      bookmarkState.splice(index, 1);
+      saveAndRefresh();
+    }
+
+    function moveSection(index, direction) {
+      const targetIndex = index + direction;
+      if (targetIndex < 0 || targetIndex >= bookmarkState.length) return;
+      const temp = bookmarkState[index];
+      bookmarkState[index] = bookmarkState[targetIndex];
+      bookmarkState[targetIndex] = temp;
+      saveAndRefresh();
+    }
+    function addEntry(secIndex) {
+      const url = prompt('Bookmark URL:', 'https://');
+      if (!url || url.trim() === '' || url === 'https://') return;
+      const title = prompt('Bookmark title:', '');
+      const note = prompt('Optional descriptive notes:', '');
+
+      bookmarkState[secIndex].entries.push({
+        title: title && title.trim() !== '' ? title.trim() : url.trim(),
+        url: url.trim(),
+        note: note ? note.trim() : ''
+      });
+      saveAndRefresh();
+    }
+
+    function deleteEntry(secIndex, entryIndex) {
+      if (!confirm('Delete this bookmark?')) return;
+      bookmarkState[secIndex].entries.splice(entryIndex, 1);
+      saveAndRefresh();
+    }
+
+    function moveEntry(secIndex, entryIndex, direction) {
+      const entries = bookmarkState[secIndex].entries;
+      const targetIndex = entryIndex + direction;
+      if (targetIndex < 0 || targetIndex >= entries.length) return;
+      const temp = entries[entryIndex];
+      entries[entryIndex] = entries[targetIndex];
+      entries[targetIndex] = temp;
+      saveAndRefresh();
+    }
+    function exportToJSONFile() {
+      const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(bookmarkState, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", dataStr);
+      downloadAnchor.setAttribute("download", "bookmarks_export.json");
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+    }
+
+    function triggerImportFileClick() {
+      document.getElementById('jsonFileInput').click();
+    }
+
+    function handleJSONImport(event) {
+      const file = event.target.files[0];
+      if (!file) return;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        try {
+          const importedData = JSON.parse(e.target.result);
+          if (Array.isArray(importedData)) {
+            bookmarkState = importedData;
+            saveAndRefresh();
+            alert('Bookmarks imported successfully!');
+          } else {
+            alert('Invalid format. Ensure it is a valid bookmarks array.');
+          }
+        } catch (err) {
+          alert('Error processing file. Check your JSON format.');
+        }
+      };
+      reader.readAsText(file);
+    }
+    document.getElementById('addSectionBtn').addEventListener('click', addSection);
+    document.getElementById('exportJsonBtn').addEventListener('click', exportToJSONFile);
+    document.getElementById('importJsonBtn').addEventListener('click', triggerImportFileClick);
+    document.getElementById('jsonFileInput').addEventListener('change', handleJSONImport);
+
+    // Initial load
+    render();
+  </script>
+</body>
+</html>
