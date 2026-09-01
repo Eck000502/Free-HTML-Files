@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Unified Market Intelligence Dashboard</title>
+    <!-- Fonts & Layout Vector Icons -->
+    <link href="https://googleapis.com" rel="stylesheet">
+    <link rel="stylesheet" href="https://cloudflare.com">
+    <!-- TradingView Professional Charting Library -->
+    <script type="text/javascript" src="https://tradingview.com"></script>
+
+    <style>
+        :root {
+            --bg-primary: #0b0f19;
+            --bg-secondary: #151d30;
+            --accent-blue: #0070f3;
+            --text-main: #f3f4f6;
+            --text-muted: #9ca3af;
+            --border-color: #24324f;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background-color: var(--bg-primary);
+            color: var(--text-main);
+            margin: 0;
+            padding: 24px;
+        }
+
+        .dashboard-container {
+            max-width: 1300px;
+            margin: 0 auto;
+        }
+
+        header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid var(--border-color);
+            padding-bottom: 20px;
+            margin-bottom: 24px;
+        }
+
+        h1 {
+            font-size: 22px;
+            font-weight: 600;
+            margin: 0;
+            letter-spacing: -0.5px;
+        }
+
+        h1 span { color: var(--accent-blue); }
+
+        .refresh-btn {
+            background-color: var(--accent-blue);
+            color: white;
+            border: none;
+            padding: 10px 18px;
+            border-radius: 6px;
+            font-size: 14px;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+
+        .metrics-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 16px;
+            margin-bottom: 24px;
+        }
+
+        .metric-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 16px;
+            display: flex;
+            flex-direction: column;
+            gap: 4px;
+        }
+
+        .metric-card .title {
+            font-size: 11px;
+            color: var(--text-muted);
+            text-transform: uppercase;
+            font-weight: 600;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-card .value {
+            font-size: 22px;
+            font-weight: 700;
+            color: #ffffff;
+            margin-top: 4px;
+        }
+
+        .chart-card {
+            background-color: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 24px;
+        }
+
+        .chart-header { margin-bottom: 20px; }
+        .chart-title { font-size: 16px; font-weight: 600; margin: 0; }
+        .chart-subtitle { font-size: 13px; color: var(--text-muted); margin: 4px 0 0 0; }
+
+        .canvas-container {
+            position: relative;
+            height: 550px;
+            width: 100%;
+            margin-top: 20px;
+        }
+    </style>
+</head>
+<body>
+
+<div class="dashboard-container">
+    <header>
+        <h1><i class="fa-solid fa-chart-line"></i> Macro Asset <span>Intelligence</span></h1>
+        <button class="refresh-btn" onclick="window.location.reload();">
+            <i class="fa-solid fa-arrows-rotate"></i> Refresh Feed
+        </button>
+    </header>
+
+    <!-- Top Card Grid Layout -->
+    <div class="metrics-grid">
+        <div class="metric-card"><div class="title">10Y Bond Yield</div><div class="value">4.78%</div></div>
+        <div class="metric-card"><div class="title">VOO Index</div><div class="value">$701.13</div></div>
+        <div class="metric-card"><div class="title">Pfizer (PFE)</div><div class="value">$28.46</div></div>
+        <div class="metric-card"><div class="title">Gold Spot</div><div class="value">$4,350.25</div></div>
+        <div class="metric-card"><div class="title">Bitcoin</div><div class="value">$78,308.64</div></div>
+    </div>
+
+    <!-- Chart Card Window Container -->
+    <div class="chart-card">
+        <div class="chart-header">
+            <h2 class="chart-title">Real-Time Macro Market Feed</h2>
+            <p class="chart-subtitle">Live-streaming comparative matrix overlays hosted securely on the web</p>
+        </div>
+        <div class="canvas-container">
+            <!-- Target canvas mount container for the updating ticker overlay -->
+            <div id="live_tv_overlay" style="height: 100%; width: 100%;"></div>
+        </div>
+    </div>
+</div>
+
+<script type="text/javascript">
+  // Instantiates the live multi-asset widget once hosted on a live URL origin
+  new TradingView.MediumWidget({
+    "symbols": [
+      ["Bitcoin", "BINANCE:BTCUSD|1D"],
+      ["VOO Index", "AMEX:VOO|1D"],
+      ["Pfizer Stock", "NYSE:PFE|1D"],
+      ["Gold Spot", "TVC:GOLD|1D"],
+      ["10Y Bond Yield", "TVC:US10Y|1D"]
+    ],
+    "chartOnly": false,
+    "width": "100%",
+    "height": "100%",
+    "locale": "en",
+    "colorTheme": "dark",
+    "gridLineColor": "#24324f",
+    "fontColor": "#9ca3af",
+    "isTransparent": false,
+    "autosize": true,
+    "container_id": "live_tv_overlay"
+  });
+</script>
+</body>
+</html>
