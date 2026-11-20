@@ -177,8 +177,13 @@ void loop() {
   //checkVoltage(); //(this routine)  Measures the voltage powering this device.
   //Loop_Tmptr();
   Loop_ReadInputs();
-  setFetOutputs(PWM_OUT_1,PWM_OUT_2,PWM_OUT_3 );
-  
+  if(analog_control == PWM_OUTPUTS)
+  { // FIXED: only drive the outputs from PWM_OUT_x while in PWM mode.
+    // In DIGITAL mode the Rx_CMD_DIG01_04 handler writes the FET pins directly,
+    // and calling setFetOutputs here every loop would immediately override it.
+    setFetOutputs(PWM_OUT_1,PWM_OUT_2,PWM_OUT_3 );
+  }
+
   Loop_SendData();
   // If this device will allow "full links... "
 
@@ -195,6 +200,7 @@ void  Setup_remoteControl(void)
 {
   // register messages
   RegisterWHATMessage (CMD_PWM01_04, &Rx_CMD_PWM01_04); // This is an entry that will not change.
+  RegisterWHATMessage (CMD_DIG01_04, &Rx_CMD_DIG01_04); // FIXED: this registration was missing, so received digital (on/off) messages were thrown away.
 //  RegisterWHATMessage (CMD_PWM01_01, &Rx_CMD_PWM01_01); // This is an entry that will not change.
 //  RegisterWHATMessage (CMD_PWM01_02, &Rx_CMD_PWM01_02); // This is an entry that will not change.
 //  RegisterWHATMessage (CMD_PWM01_03, &Rx_CMD_PWM01_03); // This is an entry that will not change.
@@ -207,57 +213,57 @@ void Rx_CMD_DIG01_04 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   // This hardware only has 3 outputs, so inputs 0,1,&2 will control them as digital.
   // Recivieng a digital message will also revert the outputs to digital.
   analog_control = DIGITAL_OUTPUTS;
-  // OUPUT #0
-  if(_WHAT_Rx_Packet.payload[_index + 2] & (0b00000001))
+  // FIXED: per z_WHAT_Command.h a CMD_DIG01_04 message is [length][command][MASK][HIGH/LOW states].
+  // The old code read the MASK byte (payload[_index + 2]) as if it were the states,
+  // wrote output #0 ON in both branches, and wrote outputs #1/#2 backwards.
+  // The MASK says which outputs this message commands; the states byte carries the on/off bits.
+  uint8_t _mask   = _WHAT_Rx_Packet.payload[_index + 2];
+  uint8_t _states = _WHAT_Rx_Packet.payload[_index + 3];
+  // FETs are active HIGH (see Setup_FET_Out): state bit set = FET ON = HIGH, bit clear = OFF = LOW.
+  // PWM_OUT_x and b_o_FETx are kept in step so the rest of the sketch sees the same output state.
+  // OUTPUT #0
+  if(_mask & (0b00000001))
   {
-    // the output is commanded ON.
-    digitalWrite(o_FET1_PIN,true);
+    digitalWrite(o_FET1_PIN, (_states & 0b00000001) ? HIGH : LOW);
+    PWM_OUT_1 = (_states & 0b00000001) ? 100 : 0;
+    b_o_FET1  = (_states & 0b00000001) ? HIGH : LOW;
   }
-  else
+  // OUTPUT #1
+  if(_mask & (0b00000010))
   {
-    digitalWrite(o_FET1_PIN,true);
+    digitalWrite(o_FET2_PIN, (_states & 0b00000010) ? HIGH : LOW);
+    PWM_OUT_2 = (_states & 0b00000010) ? 100 : 0;
+    b_o_FET2  = (_states & 0b00000010) ? HIGH : LOW;
   }
-  // OUPUT #1
-  if(_WHAT_Rx_Packet.payload[_index + 2] & (0b00000010))
+  // OUTPUT #2
+  if(_mask & (0b00000100))
   {
-    // the output is commanded ON.
-    digitalWrite(o_FET2_PIN,false);
-  }
-  else
-  {
-    digitalWrite(o_FET2_PIN,true);
-  }
-  // OUPUT #3
-  if(_WHAT_Rx_Packet.payload[_index + 2] & (0b00000100))
-  {
-    // the output is commanded ON.
-    digitalWrite(o_FET3_PIN,false);
-  }
-  else
-  {
-    digitalWrite(o_FET3_PIN,true);
+    digitalWrite(o_FET3_PIN, (_states & 0b00000100) ? HIGH : LOW);
+    PWM_OUT_3 = (_states & 0b00000100) ? 100 : 0;
+    b_o_FET3  = (_states & 0b00000100) ? HIGH : LOW;
   }
 
 }
 
 void Rx_CMD_PWM01_04 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
+  analog_control = PWM_OUTPUTS; // FIXED: a PWM message puts the outputs back into PWM mode (the digital handler above does the reverse).
   switch(_WHAT_Rx_Packet.payload[_index+2])
   {
     case  1:
       PWM_OUT_1 = _WHAT_Rx_Packet.payload[_index+3];
-       Serial.print(F("Rx PWM_OUT_1: ")); Serial.println("PWM_OUT_1");
+       Serial.print(F("Rx PWM_OUT_1: ")); Serial.println(PWM_OUT_1); // FIXED: was printing the words "PWM_OUT_1" instead of the value.
     break;
     case  2:
        PWM_OUT_2 = _WHAT_Rx_Packet.payload[_index+3];
-       Serial.print(F("Rx PWM_OUT_2: ")); Serial.println("PWM_OUT_2");
+       Serial.print(F("Rx PWM_OUT_2: ")); Serial.println(PWM_OUT_2); // FIXED: was printing the words "PWM_OUT_2" instead of the value.
     break;
     case  3:
        PWM_OUT_3 = _WHAT_Rx_Packet.payload[_index+3];
-       Serial.print(F("Rx PWM_OUT_3: ")); Serial.println("PWM_OUT_3");
+       Serial.print(F("Rx PWM_OUT_3: ")); Serial.println(PWM_OUT_3); // FIXED: was printing the words "PWM_OUT_3" instead of the value.
     break;
     default:
-      Serial.print(F("Rx Undefined PWM Channel: ")); Serial.println("_WHAT_Rx_Packet.payload[_index+3]");
+      Serial.print(F("Rx Undefined PWM Channel: ")); Serial.println(_WHAT_Rx_Packet.payload[_index+2]); // FIXED: print the offending channel number (was printing a line of code as text).
     break;
   }
 }
@@ -310,7 +316,7 @@ void Setup_COMM(void)
   //RegisterZIGMessage(CMD_FET01_04, &RxFETControl);
   //RegisterWHATMessage(CMD_COLOR0n_04, &RxLightControl);
   //RegisterWHATMessage(CMD_FET01_04, &RxFETControl);
-  //RegisterWHATMessage(CMD_DIG01_04, &RxDigitalInput);
+  // (CMD_DIG01_04 is registered in Setup_remoteControl, handled by Rx_CMD_DIG01_04.)
   
 }
 // *********************************************************************
@@ -505,20 +511,21 @@ void Loop_ReadInputs(void)
   if(analog1_delay <= millis())
   {
   analog1_delay = millis() + ANALOG_DELAY;  // Reset the delay timer for this channel
-  analog_in1 = map(analogRead(ANALOG1_PIN),0,MAX_A2D_COUNTS,0,getSupplyVoltage());
-  // Stores Analog 1 voltage as volts for later broadcast.
+  analog_in1 = (analogRead(ANALOG1_PIN) / MAX_A2D_COUNTS) * getSupplyVoltage();
+  // FIXED: float math (same pattern as Loop_Tmptr). map() used integer math, so the
+  // voltage only ever came out in whole-volt steps. Stores Analog 1 voltage as volts for later broadcast.
   } 
   if(analog2_delay <= millis())
   {
   analog2_delay = millis() + ANALOG_DELAY;  // Reset the delay timer for this channel
-  analog_in2 = map(analogRead(ANALOG2_PIN),0,MAX_A2D_COUNTS,0,getSupplyVoltage());
-  // Stores Analog 2 voltage as volts for later broadcast.
+  analog_in2 = (analogRead(ANALOG2_PIN) / MAX_A2D_COUNTS) * getSupplyVoltage();
+  // FIXED: float math, as for channel 1. Stores Analog 2 voltage as volts for later broadcast.
   } 
   if(analog3_delay <= millis())
   {
  analog3_delay = millis() + ANALOG_DELAY;  // Reset the delay timer for this channel
-  analog_in3 = map(analogRead(ANALOG3_PIN),0,MAX_A2D_COUNTS,0,getSupplyVoltage());
-  // Stores Analog 3 voltage as volts for later broadcast.
+  analog_in3 = (analogRead(ANALOG3_PIN) / MAX_A2D_COUNTS) * getSupplyVoltage();
+  // FIXED: float math, as for channel 1. Stores Analog 3 voltage as volts for later broadcast.
   } 
 }
 // ***************
@@ -535,7 +542,9 @@ void Loop_ReadInputs(void)
 
 void setFetOutputs(int duty1, int duty2, int duty3) {
   // Array of pins and duties for clean loop processing
-  int pins[3] = {PWM_OUT_1, PWM_OUT_2, PWM_OUT_3};
+  // FIXED: this array held PWM_OUT_1/2/3 — the duty VALUES (0-100) — so the writes went
+  // to pins numbered 0-100 instead of to the FET pins. These are the actual output pins:
+  int pins[3] = {o_FET1_PIN, o_FET2_PIN, o_FET3_PIN};
   int duties[3] = {duty1, duty2, duty3};
 
   for (int i = 0; i < 3; i++) {
@@ -617,23 +626,29 @@ void Loop_SendData(void)
     //Build payload
     //#define PAYLOAD_SIZE 10 //(Including this byte)
  
-    _WHAT_Tx_Packet.payload[_index++] = 3;                    // Length of analog in1
-    _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID 
+    // FIXED (all three blocks): the length byte is the total bytes in the block INCLUDING
+    // the length byte itself (the "_04" in CMD_PWM01_04 = 4 bytes). It was 3, so the
+    // receiver's parser stepped 1 byte short and only ever delivered channel 1.
+    // FIXED: channels 2 and 3 were sending PWM_OUT_2 / PWM_OUT_3 (this board's own output
+    // state) instead of this board's inputs; each channel now sends its own analog input.
+    // FIXED: percent is taken against the measured supply voltage (was a hardcoded 5).
+    _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in1 message block
+    _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 1;
-    _AnalogToPWM = (analog_in1 /5)*100;
+    _AnalogToPWM = constrain((analog_in1 / getSupplyVoltage())*100, 0, 100);
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
 
-    _WHAT_Tx_Packet.payload[_index++] = 3;                    // Length of analog in1
-    _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID 
+    _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in2 message block
+    _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 2;
-    _AnalogToPWM = (analog_in1 /5)*100;
-    _WHAT_Tx_Packet.payload[_index++] = PWM_OUT_2;   // Data Value
+    _AnalogToPWM = constrain((analog_in2 / getSupplyVoltage())*100, 0, 100);
+    _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
 
-    _WHAT_Tx_Packet.payload[_index++] = 3;                    // Length of analog in1
-    _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID 
+    _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in3 message block
+    _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 3;
-    _AnalogToPWM = (analog_in1 /5)*100;
-    _WHAT_Tx_Packet.payload[_index++] = PWM_OUT_3;   // Data Value
+    _AnalogToPWM = constrain((analog_in3 / getSupplyVoltage())*100, 0, 100);
+    _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
 
     // // Send the temperature from the local sensor:
     // _WHAT_Tx_Packet.payload[_index++] = 3;        // Length of the temperature message
