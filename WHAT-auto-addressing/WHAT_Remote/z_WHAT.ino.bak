@@ -1,0 +1,2490 @@
+#define WHAT_NETWORK_VERSION 220329
+/*
+   Allows WHAT communications.
+   Easy message reception can be handled through a registration process.
+    void RegisterWHATMessage(uint16_t _MessageID,void(*callback)(ZIG_Packet ,uint8_t))
+      - Exact match (or global (0xFFFF)) is required for PANID and Destination Address.
+      - Messgage length is captured, then _MessageID is compared to list
+      - If _MessageID matches, the associated callback is executed.
+      - an "Index" value is passed to the callback, allowing more than one MessageID per
+        Zigbee packet to be used.
+// ***************************
+// TableOfContents:
+// TOC Globals and definitions
+// TOC Initialize the MRF24J
+// TOC Restore PREEMIE state
+// TOC EEPROM initialization
+// TOC PREEMIE EEPROM Values
+// TOC EEPROM Storage
+// TOC EEPROM retrieval
+// TOC SETUP
+// TOC  Register WHAT messages for reception
+// TOC LOOP
+// TOC PREEMIE operations
+// TOC    Request Joining Network
+// TOC    Creating a new network
+// TOC    Avoiding network conflicts
+// TOC    Network identified, waiting to be allowed
+// TOC Adult operations
+// TOC    Child requesting addition to network
+// TOC    New child allowed to be added to network
+// TOC    This Device attempting to link to another device
+// TOC    Another device is attempting to link to a device
+// TOC    Normal Adult operations
+// TOC Recieve raw MRF24J messages
+// TOC Individual Recieve messages
+// TOC Recieve MRF24J buffer
+// TOC Rx Beacon message
+// TOC Rx Data message
+// TOC Rx Acknowledge message
+// TOC Rx MAC message (network creation/modification)
+// TOC Handle the recieve payload
+// TOC Individual Transmit messages
+
+// TOC Put new message into buffer
+// TOC Transmit Message from buffer
+// TOC Re-Transmit message
+// ***************************
+
+  TODO:
+    - Amber Alert - Child loses direct contact with parent.
+    - Link/unlink one or more devices
+
+  Incomplete verifications:
+    - Re-transmit message scheme testing
+    - Message sent flag and transmit buffer... Prevent message re-broadcast from interferring with transmissions from this device.
+    - verify all addresses can be assigned. (oddity seen around re-assigning address 1 multiple times)
+    - Verify child removal (on parent and child side)
+    - Verify full depth of payload and abiilty to locate MIDs through full depth of payload.
+
+    Rev 200224
+      revised view:  (copied to message reception area)
+      1) If this device does not have any children, no need to forward ANY messages.
+          - any recieved message would be from a different parentation line.
+          - Later implimentation of "AmberAlert" when child loses parent will allow it to re-address.
+          - targeted and global messages should come from parent, though direct messages will still be handled.
+          
+      2)  If this device DOES have children:
+          - if message is destination specific, verify destination is in this devices lineage:
+            for example, this address is 0123.  message arrives for DA 0223, do NOT forward. (sibling)
+                         this address is 0123.  message arrives for DA 0243, do NOT forward. (cousin)
+                         this address is 0123.  message arrives for DA 1243, do NOT forward. (nephew)
+                         this address is 0123.  message arrives for DA 1224, do NOT forward. (great-nephew)
+                         this address is 0123.  message arrives for DA 1123, ALWAYS forward. (to my child)
+                         this address is 0123.  message arrives for DA 0023, CHECK source address.... 
+                                                      only forward if source is THIS device's child.(to parent)
+                         this address is 0123.  message arrives for DA 1323, CHECK source address.... 
+                                                      only forward if source is THIS device's child.(to parent)
+              To summarize, only forward destination specific messages if they are from THIS devices child.          
+           - if destination is global, ensure message source address includes this child's lineage... 
+            for example, this address is 0123.  message arrives from SA 0223, do NOT forward. (sibling)
+                         this address is 0123.  message arrives from SA 0243, do NOT forward. (cousin)
+                         this address is 0123.  message arrives from SA 1243, do NOT forward. (nephew)
+                         this address is 0123.  message arrives from SA 1224, do NOT forward. (great-nephew)
+                         this address is 0123.  message arrives from SA 0023, DO forward (from parent, to children)
+                         this address is 0123.  message arrives from SA 1323, DO forward (from children, to parent)
+              To summarize, only forward global destination messages if they are from THIS devices child, or this device's parent.
+          - Combining these,  always forward messages with children's source address, destination address, OR global destination from parent.         
+ 
+    Rev 200223
+        EEPROM, auto-addressing (No child removal), Manual re-preemie 
+      Sketch uses 10620 bytes (34%) of program storage space. Maximum is 30720 bytes.
+      Global variables use 538 bytes (26%) of dynamic memory, leaving 1510 bytes for local variables. Maximum is 2048 bytes.
+
+    Rev 200216
+      Measured size.  
+        No auto addressing/reporting: 
+          Sketch uses 6218 bytes (20%) of program storage space. Maximum is 30720 bytes.
+          Global variables use 413 bytes (20%) of dynamic memory, leaving 1635 bytes for local variables. Maximum is 2048 bytes.
+        auto addressing only
+          Sketch uses 12334 bytes (40%) of program storage space. Maximum is 30720 bytes.
+          Global variables use 563 bytes (27%) of dynamic memory, leaving 1485 bytes for local variables. Maximum is 2048 bytes.
+        Both Addressing and reporting
+          Sketch uses 12556 bytes (40%) of program storage space. Maximum is 30720 bytes.
+          Global variables use 565 bytes (27%) of dynamic memory, leaving 1483 bytes for local variables. Maximum is 2048 bytes.
+
+    Rev 200213
+      Implimenting EEPROM and preemie recovery.
+       - once a device has been connected to a network, it can be restored to its preemie state
+       - DURING POWER-UP  **HOLD** the network button.
+       - When the Blue Light starts a fast blink, release the network button.
+       - the blue light will start blinking slower.
+       - Press the network button again momentarily, and preemie mode will be entered.
+       - the device will start the slow-blink/join request.
+
+    Rev 200210
+
+    Rev 200209
+      Previous revision was too complicated.
+      This version takes 34% of program memory and 57% of dynamic memory (on Nano).
+      THis version will use message reception flags to try to keep most actions in the 
+      "switch"es.
+      Also, this uses "MAC Commands" for all the network configuration messages.
+        This just requires a different Frame Control setting, which I handle with 3 new macros:
+            - WHAT_MAC_MESSAGE    for network creation and modification functions
+            - WHAT_DATA_MESSAGE   for normal WHAT related data
+            - WHAT_BEACON_MESSAGE for a yet-to-be-implimented Beacon.
+      
+    Rev 200203
+      At power on, preemie sends message: REQUEST_JOIN_NETWORK_03
+      Preemie has 2 possible paths:
+        1) Preemie sees another REQUEST_JOIN_NETWORK_03 (another preemie), so it creates a network:
+                - Send REQUEST_ACK_03 and wait for _5_ seconds.
+                - if REPLY_ACKNOWLEDGE_03 recieved, change PANID and try again.
+                - if timeout, use proposed PANID and source address 0000.
+        2) Preemie sees a NETWORK_ALERT_PREEMIE_03 message:
+                - increases BLUE blink rate and waits for NETWORK_ALLOW_PREEMIE_04 (created by a network member's network button activation.
+        3) Preemie sees a NETWORK_ALLOW_PREEMIE_04 message (ONLY after seeing a NETWORK_ALERT_PREEMIE_03 message):
+                - Along with NETWORK_ALLOW_PREEMIE_04 come PROPOSE_CHILD_NUMBER_07 messages.
+                - Preemie keeps the lowest parent/child address offered and joins network after _5_ seconds.
+                - sends ACCEPT_PARENT_08 message.
+      Adult has a couple of network creation options.
+        1) sees REQUEST_JOIN_NETWORK_03
+              - sends NETWORK_ALERT_PREEMIE_03 and if it has a valid child slot available sends PROPOSE_CHILD_NUMBER_07
+              - changes to WHAT_NEW_CHILD_REQ state.
+        2) sees NETWORK_ALERT_PREEMIE_03
+              - Monitors its network button.  If pressed, sends NETWORK_ALLOW_PREEMIE_04 and PROPOSE_CHILD_NUMBER_07
+        3) sees NETWORK_ALLOW_PREEMIE_04 (with or without seeing REQUEST_JOIN_NETWORK_03)
+              - sends PROPOSE_CHILD_NUMBER_07
+     Adult in WHAT_NEW_CHILD_REQ state
+        1) monitors its own network button,and (if pressed):
+            - sends NETWORK_ALLOW_PREEMIE_04
+            - Changes to WHAT_NEW_CHILD_ALLOWED state.
+        2) monitors network messages for NETWORK_ALLOW_PREEMIE_04
+            - changes to WHAT_NEW_CHILD_ALLOWED state.
+        3) monitors network for CHOOSE_NETWORK_05
+            - if chosen network number does not match this PANID, return to WHAT_PREEMIE_FINISHED state 
+        
+     Adult in WHAT_NEW_CHILD_ALLOWED
+        1) Monitors network for ACCEPT_PARENT_08
+           - If the accepted parent source matches this source:
+              o Verify recieved child address is valid and available.
+              o Add this child - Record latchkey value, and increment the child index.
+              o return to WHAT_PREEMIE_FINISHED state
+        2) monitors network for CHOOSE_NETWORK_05
+            - if chosen network number does not match this PANID, return to WHAT_PREEMIE_FINISHED state 
+
+    Other always monitored network messages:
+
+
+    Rev 200202
+      - preemie repeats REQUEST_JOIN_NETWORK_03 1/second until WHAT_PRE_NETWORK_ALLOW_PREEMIE_04 before recording proposed child addressses.
+      - Once WHAT_PRE_NETWORK_ALLOW_PREEMIE_04 is seen, preemie changes to that PANID, and only accepts
+      - When
+            Rx_PROPOSE_CHILD_NUMBER_07 messages from the allowing PAN
+
+
+    Rev 200201
+ *    *** NOTE  ALL Multibyte MESSAGE IDs (MIDs) that are larger than 0xEF -MUST- be highbyte/Lowbyte order.
+      This allows the recieving routine to evalueate the byte and if it sees it is F0 or larger, it will pull the next byte as its low byte.
+
+
+*/
+/*#include <WHAT.h>*/
+#include <EEPROM.h>
+
+// *********************************************************************
+// *********************************************************************
+// *********************************************************************
+
+// TOC Globals and definitions
+
+// These are variables that can be (carefully) re-used within this program
+// This is done to reduce the amount of dynamic memory used.
+uint16_t WHATLinks[numWHATLinks] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+ChildType myChildren[ChildMaxIndex];
+uint16_t myPANID = 0xFFFF;     // This is saved in and loaded from EEPROM
+uint16_t myParentAddress = 0xFFFF; // when I am adopted, I will record the parent's address
+bool f_hasChildren = false;   // quick check (during message forwarding) to see if this device has children.
+uint16_t myMask = 0x000F;     // this mask is re-calculated when a source address is obtained.
+uint16_t  myLinks[numWHATLinks] = {0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF, 0xFFFF};
+uint8_t * _WHAT_network_light = nullptr;
+bool * _WHAT_network_button = nullptr;
+double gbl_t_NetworkAlive = 0;
+
+double WHAT_Reusable_Timer1 = millis();
+double WHAT_Reusable_Timer2 = millis();
+uint8_t WHAT_Reusable_8t_1  = 0xFF;
+uint16_t WHAT_Reusable_16t_1  = 0xFFFF;
+uint16_t WHAT_Reusable_16t_2  = 0xFFFF;
+uint16_t WHAT_Reusable_16t_3  = 0xFFFF;
+uint16_t WHAT_Reusable_16t_4  = 0xFFFF;
+
+uint8_t WHAT_Reusable_Message1 = 0xFF; //This is registered once, then the callback can be changed
+bool gbl_preemie_alert_seen = false;   // tracks NETWORK_ALERT_PREEMIE_03 gating for allow/join path
+double gbl_preemie_alert_expire = 0;   // timeout for how long the alert is considered valid
+#define PREEMIE_ALERT_HOLD_MS 5000      // per Access Control: allow window after alert
+//When connecting to the network, several messages are only valid
+//uint8_t WHAT_Reusable_Message2 = 0xFF; //at certian times, so this can be changed to avoid each of them taking
+//an entry in the recieved message table.  All of the 1-time, 1-at-a-time use messages
+//can be assigned to this same message table entry.
+
+// Rx Message flags
+bool f_Rx_REQUEST_JOIN_NETWORK_03 = false;    // Preemie asking to join network
+bool f_Rx_NETWORK_ALERT_PREEMIE_03 = false;   // Notice from another device that a preemie is trying to join
+bool f_Rx_CHOOSE_NETWORK_05  = false;         // Notice to other networks that a network has accepted this preemie
+bool f_Rx_NETWORK_ALLOW_PREEMIE_04 = false;   // Notice to this preemie that it may accept its parent (only valid after alert)
+bool f_Rx_PROPOSE_CHILD_NUMBER_05 = false;    // Preemie asking the network for a child number
+bool f_Rx_ACCEPT_PARENT_08 = false;
+bool f_Rx_NETWORK_JOIN_COMPLETE_03 = false;   // Preeemie accepted a proposed parent 
+bool f_Rx_NETWORK_JOIN_ABORT_03 = false;      // User abort of the acceptance process.
+bool f_Rx_REPLY_ACKNOWLEDGE_03 = false;       // While a new network is forming, requests existing network to claim its PANID
+bool f_REQUEST_FULL_LINK_03 = false;
+bool f_ACCEPT_FULL_LINK_03 = false;
+//bool f_REJECT_FULL_LINK_03 = false;
+
+// Different things happen to establish the network connection.
+enum en_preemie_states
+{
+  /* Preemie values */
+  WHAT_PRE_INVALID,
+  WHAT_PRE_REQUEST_JOIN_NETWORK_03,
+  WHAT_NETWORK_SEEN,
+  WHAT_PRE_NETWORK_ALLOW_PREEMIE_04,
+  WHAT_ACCEPT_PARENT_08,
+  WHAT_PRE_CONFIRM_NEW_CHILD_03,
+  WHAT_PREEMIE_FINISHED,
+
+  /*Forming Network values */
+  WHAT_PRE_NEW_NETWORK_ACK,
+
+  /*When a device is a part of a network: */
+  WHAT_NEW_CHILD_REQ,
+  WHAT_NEW_CHILD_ALLOWED,
+  WHAT_LINKING_INITIATED,
+  WHAT_LINK_REQUESTED
+  
+} WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03;
+
+// TOC SETUP
+void WHAT_begin(bool *_network_button, uint8_t *_network_light)
+{
+
+  // ****************   Setup for WHAT   ***************************/
+  // Register common ZigBee recieved messages
+  //void RegisterZIGMessage (uint16_t _MessageID,void(*callback)()); // Messages must match this PANID and destination address or be global.
+
+  //WHAT_Tx_Packet.header_length = 9;
+  //WHAT_Tx_Packet.frame_length = WHAT_Tx_Packet.header_length + 1; //FrameControl,Seq#,PANID,Dest,Source
+  //WHAT_Tx_Packet.frame_control = 0b100010001000001    ;  // Default:DataFrame,NoSecurity,NoPendingData,NoAck,Intra-PAN,16BitDest, 16BitSource.
+  //            //   Bits:  15-14   13-12  11-10  9-7    6      5    4        3      2-0
+  //            //        SourceMode RES DestMode RES IntraPAN Ack pending Security FrameType        Res
+  //WHAT_Tx_Packet.sequence_number = 0;
+  //WHAT_Tx_Packet.pan_id = myPANID;
+  //WHAT_Tx_Packet.destination = 0xFFFF;
+  //WHAT_Tx_Packet.sourceaddress = mySourceAddress;
+
+  // setup the network button and lights.
+  //pinMode(NETWORK_LIGHT,OUTPUT);
+  //digitalWrite(NETWORK_LIGHT,LOW); // Lights are active HIGH
+  //pinMode(NETWORK_BUTTON,INPUT_PULLUP);
+  //Setup_Button_Light(); // This is IF the button/light is installed.
+  _WHAT_network_light = _network_light;   // Main application is responsible for monitoring the network button and light (in case of LCD displays, etc...)
+  _WHAT_network_button = _network_button; // Main application is responsible for monitoring the network button and light (in case of LCD displays, etc...)
+  gbl_t_NetworkAlive = millis();
+
+  //pinMode(b_RED_RGB_PIN,OUTPUT);        // Main application is responsible for additional lights, if desired.
+  //pinMode(b_GREEN_RGB_PIN,OUTPUT);
+  //pinMode(b_BLUE_RGB_PIN,OUTPUT);
+  //digitalWrite(b_RED_RGB_PIN,HIGH);  // Lights are active LOW
+  //digitalWrite(b_GREEN_RGB_PIN,HIGH);
+  //digitalWrite(b_BLUE_RGB_PIN,HIGH);
+  WHAT_EEPROM();  // restore any WHAT parameters from EEPROM (Source address/PANID, etc...)
+  preemie_check_restore();  // A button press sequence can revert a device to a preemie.
+
+  Serial.println(F("PANID\tmySourceAddress\tmyParentAddress\tmyLatchkey\tWHAT_preemie_state"));
+  Serial.print(myPANID,HEX);Serial.print(" \t");Serial.print(mySourceAddress,HEX);Serial.print(" \t");Serial.print(myParentAddress,HEX);Serial.print(" \t");Serial.print(myLatchKeyNumber,HEX);Serial.print(" \t");Serial.println(WHAT_preemie_state,HEX);
+  Serial.print(F("Links: 0x"));
+  for(uint8_t _i=0; _i<numWHATLinks; _i++)
+  {
+    Serial.print(WHATLinks[_i],HEX);Serial.print(" \t0x");
+  }
+  Serial.println(" ");
+  mrf.init();
+  Mrf24j_begin (myPANID, mySourceAddress);
+
+  // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// TOC  Register WHAT messages for reception
+#ifdef AUTO_ADDRESSING
+  Serial.println(F("WHAT Auto-addressing enabled"));
+  RegisterWHATMessage (REQUEST_JOIN_NETWORK_03, &Rx_REQUEST_JOIN_NETWORK_03); // This is an entry that will not change.
+  RegisterWHATMessage (CHOOSE_NETWORK_05, &Rx_CHOOSE_NETWORK_05); // This is an entry that will not change.
+  RegisterWHATMessage (PROPOSE_CHILD_NUMBER_05, &Rx_PROPOSE_CHILD_NUMBER_05); // This is an entry that will not change.
+  RegisterWHATMessage (ABANDON_CHILD_05, &Rx_ABANDON_CHILD_05); // This is an entry that will not change.
+  RegisterWHATMessage (REQUEST_FULL_LINK_03, &Rx_REQUEST_FULL_LINK_03); // This is an entry that will not change.
+  RegisterWHATMessage (ACCEPT_FULL_LINK_03, &Rx_ACCEPT_FULL_LINK_03); // This is an entry that will not change.
+  RegisterWHATMessage (REMOVE_FULL_LINK_03, &Rx_REMOVE_FULL_LINK_03); // This is an entry that will not change.
+  RegisterWHATMessage (REJECT_FULL_LINK_03, &Rx_REJECT_FULL_LINK_03); // This is an entry that will not change.
+ 
+   // Trying to make these as re-usable messages.
+  //RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
+  //RegisterWHATMessage (NETWORK_ALLOW_PREEMIE_04, &Rx_NETWORK_ALLOW_PREEMIE_04); // This is an entry that will not change.
+  WHAT_Reusable_Message1 = RegisterWHATMessage (0xFFFF, &holdingFunction); // This entry can be re-used during network adoption.
+
+  // Check to see if this device has any children.
+  f_hasChildren = false;
+  for(uint8_t _i=0;_i<ChildMaxIndex;_i++)
+  {
+    if(myChildren[_i].ChildAddress<0xFFFF) f_hasChildren = true;
+  }
+  #ifdef RX_MONITOR
+  Serial.print(F("Has Children:"));Serial.println(f_hasChildren);
+  #endif
+  
+  WHAT_CheckPreemie();  // If in preemie mode, this device looks for a network to join, or to form its own.
+  //digitalWrite(b_RED_RGB_PIN, LOW); // Indicate this device is not a preemie any more.
+  *_WHAT_network_light = WHAT_NETWORK_NONE;
+ 
+#endif
+  // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  // vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+
+}
+// *********************************************************************
+// *********************************************************************
+// *********************************************************************
+// TOC LOOP
+void Loop_WHAT(void)
+{
+  // if this device is a preemie, execute this routine.
+  if((mySourceAddress == 0xFFFF) | (myPANID == 0xFFFF))
+  {
+    WHAT_CheckPreemie();
+  }
+  else
+  {
+    #ifdef AUTO_ADDRESSING
+    WHAT_CheckAdult(); // This is only invoked when the device has created or connected to a network.
+    //Loop_Monitor_WHAT_Network(); 
+    #endif
+  }
+  WHATHouseKeeping();
+
+  // put your main code here, to run repeatedly:
+  RX_WHAT();
+  Tx_What_Que();
+}
+
+// *************************************************************************
+// TOC Recieve raw MRF24J messages
+void RX_WHAT (void)
+{
+  uint8_t _mrf_intstat;
+  //uint16_t TempByte;
+  //ZIG_message_t _recievedZIGMsg;
+  // See if a message has arrived in the Zigbee module.
+  _mrf_intstat = Mrf24j_Read(MRF24J_INTSTAT);
+  if (_mrf_intstat & MASK_RXIF )
+  {
+    //Serial.println("Rx WHAT");
+// TOC Recieve MRF24J buffer
+    WHAT_Buffer_RX();
+    if(WHAT_Rx_Packet.pan_id == myPANID)
+    {
+      // Any device on this device's network will indicate the network is alive.
+      gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // This allows an indication of any other devices on the network.
+      if(*_WHAT_network_light == WHAT_NETWORK_NONE)  //If the network was previously timed out, turn it back on.
+      {
+        *_WHAT_network_light = WHAT_NET_ALIVE;
+      }
+    }
+ 
+    //TempByte =  mrf.read_long(0x301) + (mrf.read_long(0x302)*0x100);
+    //Serial.print("ZIG_FRAME_CONTROL (0x301 & 0x302)\t: 0x"); Serial.println(TempByte,HEX);
+
+    // Handle ACK messages seperately.
+    //WHAT_Rx_Packet.frame_control = Mrf24j_Read(WHAT_ADR_FRAMECTRL);
+    //Serial.print("Rx:");Serial.println(WHAT_Rx_Packet.frame_control,HEX);
+    //Serial.print("RxPacket value: ");Serial.println(WHAT_Rx_Packet.frame_control & 0x07,HEX);
+    switch (WHAT_Rx_Packet.frame_control & 0x07)
+    {
+// TOC Rx Beacon message
+      case MASK_FC_BEACON: //this is a beacon frame.  These are not currently supported.
+        Serial.println(F("Beacon"));
+        break;
+
+// TOC Rx Data message
+      case MASK_FC_DATA: //this is a data frame.  Extract and use the data.
+        Serial.println(F("Data"));
+        //Serial.print("MRF_INTSTAT : ");Serial.println(_mrf_intstat);
+        //WHAT_Rx_Packet.packet_length = Mrf24j_Read(WHAT_ADR_PACKETLENGTH);
+        //Serial.print("Address "); Serial.print(WHAT_ADR_RxSTART,HEX); Serial.print(" (length) : ");Serial.println(_length);
+        //Serial.print("pan_id : 0x"); Serial.println(WHAT_Rx_Packet.pan_id,HEX);
+        //Serial.print("destination : 0x"); Serial.println(WHAT_Rx_Packet.destination,HEX);
+        //Serial.print("sourceaddress :"); Serial.println(WHAT_Rx_Packet.sourceaddress,HEX);
+        //_length= WHAT_Rx_Packet.frame_length - _ZIGBEE_HEADER_LENGTH;
+          //Serial.println ("A message Arrived. ");
+          if ((WHAT_Rx_Packet.pan_id == myPANID) | (WHAT_Rx_Packet.pan_id == GLOBAL_PANID))
+          { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
+            //Serial.println(F("Data PAN ID Match"));
+            //Serial.print("Rx Destination: 0x");Serial.println(WHAT_Rx_Packet.destination,HEX);
+            //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
+            if ((WHAT_Rx_Packet.destination == mySourceAddress) | (WHAT_Rx_Packet.pan_id == GLOBAL_DESTINATION))
+            { // The recieved packet is targeting this device, or is general communications
+              //Serial.println("Destination Match");
+              WHAT_PayloadHandler();
+            } // End If this message is targeting this device
+
+          } // End if this message is on this PAN
+        break;
+// TOC Rx Acknowledge message
+      case MASK_FC_ACKFRAME:  // Default to ACKs, though they are not currently being handled.
+        Serial.println(F("Ack"));
+        break;
+// TOC Rx MAC message (network creation/modification)
+      case MASK_FC_MAC_CMD: // MAC command... Used in network creation.
+        Serial.println(F("MAC Command"));
+        #ifdef RX_MONITOR
+          Serial.println(F("PANID DESTINATION SOURCE f_hasChildren"));
+          Serial.print(WHAT_Rx_Packet.pan_id,HEX);Serial.print(" ");Serial.print(WHAT_Rx_Packet.destination,HEX);Serial.print(" ");Serial.print(mySourceAddress,HEX);Serial.print(" ");Serial.println(f_hasChildren);
+        #endif
+        if(mySourceAddress == 0xFFFF)
+        {
+              WHAT_PayloadHandler();
+        }
+        else
+        {
+          //Once this device is part of a network, establish more message acceptance critera
+          if ((WHAT_Rx_Packet.pan_id == myPANID) | (WHAT_Rx_Packet.pan_id == GLOBAL_PANID))
+          { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
+            Serial.print(F("match: WHAT_Rx_Packet.pan_id:0X"));Serial.println(WHAT_Rx_Packet.pan_id,HEX);
+            //Serial.print("Rx Destination: 0x");Serial.println(WHAT_Rx_Packet.destination,HEX);
+            //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
+            if ((WHAT_Rx_Packet.destination == mySourceAddress) | (WHAT_Rx_Packet.destination == GLOBAL_DESTINATION))
+            { // The recieved packet is targeting this device, or is general communications
+              Serial.println("Destination Match");
+              WHAT_PayloadHandler();
+            } // End If this message is targeting this device
+          }
+        }
+        break;
+
+      default:
+        Serial.print(F("Reserved recieved message frame: 0x"));Serial.println(WHAT_Rx_Packet.frame_control & 0x07);
+        break;
+    }// End Switch
+// TOC Re-Transmit message
+    #ifdef RETRANSMIT
+    // Forward message (if necessary)
+/*    Rev 200224
+      revised view:  (copied to message reception area)
+      1) If this device does not have any children, no need to forward ANY messages.
+          - any recieved message would be from a different parentation line or this devices parent.
+          - Later implimentation of "AmberAlert" when child loses parent will allow it to re-address, so all childrent should communicate direclty with parents.
+          - targeted and global messages should come from parent, though direct messages will still be conveyed through lineage.
+          
+      2)  If this device DOES have children:
+          - if message is destination specific, verify destination is in this devices lineage:
+            for example, this address is 0123.  message arrives for DA 0223, do NOT forward. (sibling)
+                         this address is 0123.  message arrives for DA 0243, do NOT forward. (cousin)
+                         this address is 0123.  message arrives for DA 1243, do NOT forward. (nephew)
+                         this address is 0123.  message arrives for DA 1224, do NOT forward. (great-nephew)
+                         this address is 0123.  message arrives for DA 1123, ALWAYS forward. (to my child)
+                         this address is 0123.  message arrives for DA 0023, CHECK source address.... 
+                                                      only forward if source is THIS device's child.(to parent)
+                         this address is 0123.  message arrives for DA 1323, CHECK source address.... 
+                                                      only forward if SOURCE is THIS device's child.(to parent)
+              To summarize, only forward destination specific messages if they are FROM THIS devices child.          
+           - if destination is global, ensure message SOURCE address includes this child's lineage... 
+            for example, this address is 0123.  message arrives from SA 0223, do NOT forward. (sibling)
+                         this address is 0123.  message arrives from SA 0243, do NOT forward. (cousin)
+                         this address is 0123.  message arrives from SA 1243, do NOT forward. (nephew)
+                         this address is 0123.  message arrives from SA 1224, do NOT forward. (great-nephew)
+                         this address is 0123.  message arrives from SA 0023, DO forward (from parent, to children)
+                         this address is 0123.  message arrives from SA 1323, DO forward (from children, to parent)
+              To summarize, only forward global destination messages if they are from THIS devices child, or this device's parent.
+          - Combining these, always forward messages with children's source address, destination address, OR 
+                global destination from THIS DEVICE's parent.         
+ */
+     if ((WHAT_Rx_Packet.pan_id == myPANID) & (WHAT_Rx_Packet.destination != mySourceAddress) & f_hasChildren) 
+     {  // Only consider re-transmit if the PANID matches, THIS device was not targeted, and this device has children.
+        bool _retransmit_message = false;
+        if(WHAT_Rx_Packet.destination == GLOBAL_DESTINATION) 
+        {
+           if(WHAT_Rx_Packet.sourceaddress == myParentAddress) _retransmit_message = true;
+        }
+        if(!_retransmit_message)// If already transmitting, no need to evaluate the source and destination...
+        {   // source or destination of grand children and great grand children also need be considered....
+            // mask to isolate this child's children and grandchildren in the destination  and source address.
+            // This is multiplying a comparison with a number.  A false comparison resolves to 0 and when multiplied, removes the term from the equation.
+            uint16_t myMask = ( ((mySourceAddress > 0x00) * 0x0F) | ((mySourceAddress > 0x0F) * 0x0FF) | ((mySourceAddress > 0xFF) * 0xFFF) );
+            Serial.print("Mask:0x");Serial.println(myMask);
+             //Apply the mask to the incoming source address to verify that the lineage matches this device before sending this message.
+            uint16_t _temporary = WHAT_Rx_Packet.sourceaddress & myMask;
+            if(_temporary == mySourceAddress) _retransmit_message = true; //This message came FROM one of my (grand)children. 
+            _temporary = WHAT_Rx_Packet.destination & myMask;
+            if(_temporary == mySourceAddress) _retransmit_message = true; //This message is going TO one of my (grand)children. 
+        }
+        if(!_retransmit_message)// If already transmitting, no need to evaluate the children...
+        {// Not re-transmitting.  see if any of the children are targeted.
+          for (uint8_t _i=1;_i<ChildMaxIndex;_i++)
+          { //see if the arriving souce address or destination address matches any of the children of this device. 
+            if(WHAT_Rx_Packet.destination == myChildren[_i].ChildAddress) _retransmit_message = true;
+            if(WHAT_Rx_Packet.sourceaddress == myChildren[_i].ChildAddress) _retransmit_message = true;
+          }
+        }
+        if(_retransmit_message)
+        { // re transmit this message.
+            // My initial thoughts were to use the MSB as an indicator for if the message was 
+            // traveling inbound or outbound, but I think the use of the source and destination
+            // eliminate the need for that.  That might allow twice as many source addresses to be used.
+            WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+            _WHAT_Tx_Packet = WHAT_Rx_Packet; // Make it the same as the incoming message.
+            #ifdef RX_MONITOR
+            Serial.println("Retransmitting");
+            #endif
+        }
+    }
+    #ifdef RX_MONITOR
+    else
+    {
+      Serial.println(F("Not Retransmitted.  PANID DESTINATION SOURCE f_hasChildren"));
+      Serial.print(WHAT_Rx_Packet.pan_id,HEX);Serial.print(" ");Serial.print(WHAT_Rx_Packet.destination,HEX);Serial.print(" ");Serial.print(mySourceAddress,HEX);Serial.print(" ");Serial.println(f_hasChildren);
+    }
+    #endif  // RX_MONITOR
+    #endif  // RETRANSMIT
+  }// End if a message has arrived
+}// End Function
+
+// TOC Handle the recieve payload
+void WHAT_PayloadHandler(void)
+{// The PANID, SOURCE and DESTINATION have been verified that this routine
+ //   is permitted to sift through the payload and act upon the MIDs
+ //   this works on the global variable WHAT_Rx_Packet that is buffered seperately.
+ //   MIDs are compared to the registered list and when matches are found, callbacks are executed.
+ 
+     uint8_t _length = WHAT_Rx_Packet.payload[0];  // Total payload length.
+    //Serial.print("Rx payload size:");Serial.println(_length);
+    uint8_t _index = 1;
+    while (_index < (_length - 1))
+    { // Read the first command from the packet.
+      uint8_t _NumBytes = WHAT_Rx_Packet.payload[_index];  // each command starts with its total data length.
+      //Serial.print("_NumBytes:");Serial.println(_NumBytes);
+      //uint16_t _thisMessageID = (WHAT_Rx_Packet.payload[_index + 1] *0x100) + WHAT_Rx_Packet.payload[_index + 2]; // Message IDs uniquely identify message contents
+      uint16_t _thisMessageID = WHAT_Rx_Packet.payload[_index + 1]; // Message IDs uniquely identify message contents
+      if (_thisMessageID > 0xEF) {
+        _thisMessageID = _thisMessageID * 0x100 + WHAT_Rx_Packet.payload[_index + 2];
+      }
+      for (uint8_t _i = 0; _i <= WHATRxIndex; _i++)
+      { // Search the registered messages and see if they want this messageID.
+        if ( WHATRxMessage[_i]. MessageID ==  _thisMessageID)
+        {
+          //Serial.print(F("MID Match:")); Serial.println(_thisMessageID, HEX);
+          (* WHATRxMessage[_i].callback)(WHAT_Rx_Packet, _index);
+        }
+        //else
+        //{
+        //  Serial.print(_thisMessageID,HEX);Serial.print("<>");Serial.println(WHATRxMessage[_i]. MessageID,HEX);
+        //}
+      }// End search registered messages for a match.
+      _index += (_NumBytes); // Move the index to the next message (if there is one)
+      //Serial.print("_index:");Serial.println(_index);
+    } // End While Index<length
+}
+
+
+// *************************************************************************
+// *************************************************************************
+void  WHATHouseKeeping(void)
+{
+  if(mySourceAddress != 0xFFFF)
+  {
+   // This device has been assigned a source address, so is part of a network.
+   // Items here can be done as routine maintainence
+
+   // Keep indication of network is alive
+   if( gbl_t_NetworkAlive <= millis())   // This is reset in     // TOC Recieve MRF24J buffer
+    {
+      gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // go aheand and reset the counter here so this check is done less often.
+      *_WHAT_network_light = WHAT_NETWORK_NONE;  // Indicate the network has timed out.
+    }
+//    else
+//    {
+//      #define _STILL_ALIVE_RATE 5000      // -IF- the network is still alive, the indicator light might be in some other state.
+//      static double _stillAlive = millis(); // Having a delay timer here allows that other state to be seen.
+//      if((_stillAlive <= millis()& !)
+//      {
+//        _stillAlive = millis() + _STILL_ALIVE_RATE;
+//        *_WHAT_network_light = WHAT_NET_ALIVE;
+//      }
+//    }
+  }
+}
+
+// *************************************************************************
+// *************************************************************************
+// TOC Initialize the MRF24J
+void Mrf24j_begin (uint16_t _myPANID, uint16_t _mySourceAddress)
+{
+  pinMode(WHAT_CHIP_SELECT, OUTPUT);  // Chip Select pin is defined in WHAT.h
+  //pinMode(_pin_reset, OUTPUT);
+  //pinMode(_pin_int, INPUT);
+
+  SPI.setBitOrder(MSBFIRST) ;
+  SPI.setDataMode(SPI_MODE0);
+  SPI.begin();
+
+  Mrf24j_reset();           // Copied from mff24 library to this routine
+  Mrf24j_set_pan(_myPANID);  // Copied from mff24 library to this routine
+  // This is _our_ address
+  Mrf24j_set_SourceAddress(_mySourceAddress);  // Copied from mff24 library to this routine
+  //Mrf24j_rx_flush();
+  // uncomment if you want to receive any packet on this channel
+  Mrf24j_set_promiscuous(true);
+  // uncomment if you want to enable PA/LNA external control
+  //Mrf24j_set_palna(true);
+  // uncomment if you want to buffer all PHY Payload
+  //Mrf24j_set_bufferPHY(true);
+
+}
+// *************************************************************************
+
+void Mrf24j_reset (void)
+{
+  // Mrf24j_Write(_address_of_register , _data_value_to_write);
+  //Mrf24j_Write(MRF24J_SOFTRST,0x07);
+
+  //Give timeout for chip to reset
+  //  Serial.println(micros());
+  //double _lastmilli = millis()+200;    // Time out if reset does not finish within 100mS
+  //uint16_t _counter = 0;
+  //while ((Mrf24j_Read(MRF24J_SOFTRST) & 0x7) != 0) {
+  // wait for soft reset to finish
+  //   _counter++;
+  //if (millis()>_lastmilli) break;
+  //}
+  //Serial.print("count:");Serial.println(_counter);
+
+  Mrf24j_Write(MRF24J_PACON2, 0x98); // – Initialize FIFOEN = 1 and TXONTS = 0x6.
+  Mrf24j_Write(MRF24J_TXPEMISP, 0x95); // – Initialize RFSTBL = 0x9.
+
+  //Mrf24j_Write(MRF24J_RFCTRL0, 0x03); // – Initialize RFOPT = 0x03.
+  Mrf24j_Write(MRF24J_RFCTRL1, 0x01); // – Initialize VCOOPT = 0x02.
+  Mrf24j_Write(MRF24J_RFCTRL2, 0x80); // – Enable PLL (PLLEN = 1).
+  Mrf24j_Write(MRF24J_RFCTRL3, 0x90); // – Initialize TXFIL = 1 and 20MRECVR = 1.
+  Mrf24j_Write(MRF24J_RFCTRL7, 0x80); // – Initialize SLPCLKSEL = 0x2 (100 kHz Internal oscillator).
+  Mrf24j_Write(MRF24J_RFCTRL8, 0x10); // – Initialize RFVCO = 1.
+  Mrf24j_Write(MRF24J_SLPCON1, 0x21); // – Initialize CLKOUTEN = 1 and SLPCLKDIV = 0x01.
+
+  //  Configuration for nonbeacon-enabled devices (see Section 3.8 “Beacon-Enabled and
+  //  Nonbeacon-Enabled Networks”):
+  Mrf24j_Write(MRF24J_BBREG2, 0xC6); // Set CCA mode to ED
+
+  //Mrf24j_Write(MRF24J_CCAEDTH, 0x60); // – Set CCA ED threshold.
+  //Mrf24j_Write(MRF24J_BBREG6, 0x40); // – Set appended RSSI value to RXFIFO.
+  //set_interrupts();
+  Mrf24j_set_channel(12);
+  // max power is by default.. just leave it...
+  // Set transmitter power - See “REGISTER 2-62: RF CONTROL 3 REGISTER (ADDRESS: 0x203)”.
+  Mrf24j_Write(MRF24J_RFCTL, 0x04); //  – Reset RF state machine.
+  Mrf24j_Write(MRF24J_RFCTL, 0x00); // part 2
+  delay(1); // delay at least 192usec
+
+  Mrf24j_Write(MRF24J_RXFLUSH, 0x61);
+  Mrf24j_Write(MRF24J_TRISGPIO, 0b11110001); // ; Set the I/O state of the GPIO pins.
+  Mrf24j_Write(MRF24J_GPIO, MRF24J_GPIO_Rx); // ; Set the state of the GPIO pins. (receive mode)
+  Mrf24j_Write(MRF24J_TESTMODE, 0b00001111); //; GPIO0, GPIO1 and GPIO2 are configured to control an external PA and/or LNA (*** Manually control GPIO3 to turn on before transmit and off afterward!!!)
+  Mrf24j_Write(MRF24J_TRISGPIO, 0b11111111); //; GPIO0, GPIO1 and GPIO2 are configured to control an external PA and/or LNA (*** Manually control GPIO3 to turn on before transmit and off afterward!!!)
+  Mrf24j_Write(MRF24J_TESTMODE, 0b00001000); // ; GPIO0, GPIO1 and GPIO2 are configured to control an external PA and/or LNA (*** Manually control GPIO3 to turn on before transmit and off afterward!!!)
+  Mrf24j_Write(MRF24J_PACON2, 0b00001000); //, // ; GPIO0, GPIO1 and GPIO2 are configured to control an external PA and/or LNA (*** Manually control GPIO3 to turn on before transmit and off afterward!!!)
+
+  Mrf24j_Write(MRF24J_SADRL, 0xFF);
+  Mrf24j_Write(MRF24J_SADRH, 0xFF);
+  Mrf24j_Write(MRF24J_PANIDL, 0xFF);
+  Mrf24j_Write(MRF24J_PANIDH, 0xFF);
+  Mrf24j_Write(MRF24J_EADR0, 0xAA);
+  Mrf24j_Write(MRF24J_EADR1, 0xAA);
+  Mrf24j_Write(MRF24J_EADR2, 0xAA);
+  Mrf24j_Write(MRF24J_EADR3, 0xAA);
+  Mrf24j_Write(MRF24J_EADR4, 0xAA);
+  Mrf24j_Write(MRF24J_EADR5, 0xAA);
+  Mrf24j_Write(MRF24J_EADR6, 0xAA);
+  Mrf24j_Write(MRF24J_EADR7, 0xAA);
+  Mrf24j_Write(MRF24J_PACON2, 0x98); // ; / * Tx and Rx FIFO output enable signal - via state machine * /
+  //Mrf24j_Write(MRF24J_RFCTRL0, 0x03); //; / * RF Optimization * / Phase Locked Loop MUST be enabled to Tx or Rx.
+  //Serial.println(Mrf24j_Read(MRF24J_RFCTRL0));
+  Mrf24j_Write(MRF24J_RFCTRL1, 0x01); //; / * set optimal VCO current value * /
+  Mrf24j_Write(MRF24J_RFCTRL2, 0x80); //; / * RF Optimization * / Phase Locked Loop MUST be enabled to Tx or Rx.
+  Mrf24j_Write(MRF24J_RFCTRL3, 0x00); //; Spec sheet recommends this setting
+  Mrf24j_Write(MRF24J_RFCTRL6, 0x90); // * program RSSI ADC with 2.5 MHz clock * /
+  Mrf24j_Write(MRF24J_RFCTRL7, 0x80); // – Initialize SLPCLKSEL = 0x2 (100 kHz Internal oscillator).
+  Mrf24j_Write(MRF24J_RFCTRL8, 0x10); // / * VCO control equals 1 * /
+  Mrf24j_Write(MRF24J_TXPEMISP, 0x95);
+  //Mrf24j_Write(MRF24J_BBREG2,0xC6); /// * Program CCA mode using RSSI * /
+  Mrf24j_Write(MRF24J_BBREG2, 0x80); /// * Program CCA mode using RSSI * /
+
+  Mrf24j_Write(MRF24J_CCAEDTH, 0x60);
+  Mrf24j_Write(MRF24J_BBREG6, 0x40); // / * Append RSSI value in RxFIFO * /
+  //Mrf24j_Write(MRF24J_CLKINTCR,0x03);
+  Mrf24j_Write(MRF24J_RXMCR, 0x01);
+
+  Mrf24j_Write(MRF24J_ACKTMOUT, 0xB9); //  ; Microchip stack does this.  I had not defined this register. ;*** this WAS defined, so ACKTMOUT was set to B9
+  Mrf24j_Write(MRF24J_TXPEMISP, 0x95);
+  Mrf24j_Write(MRF24J_SLPCON1, 0x01); //;/ * Set sleep clk div = 1 * /
+  Mrf24j_Write(MRF24J_SLPACK, 0x5F);  //;/ * System clock (20MHZz) recovery time = 0x5f * /
+  Mrf24j_Write(MRF24J_RFCTL, 0x04);
+  Mrf24j_Write(MRF24J_RFCTL, 0x00);
+
+  Mrf24j_Write(MRF24J_ORDER, 0xFF);
+  delay(2);
+  //Serial.println(Mrf24j_Read(MRF24J_BBREG2), HEX);
+
+}
+// *************************************************************************
+
+uint16_t Mrf24j_get_pan(void)
+{
+  uint16_t _ret =  Mrf24j_Read(MRF24J_PANIDH) * 0x100; // get the high byte and shift it into the upper byte of the return value
+  _ret = _ret + Mrf24j_Read(MRF24J_PANIDL); // add on the low byte.
+  return _ret;
+}
+// *************************************************************************
+
+void Mrf24j_set_pan(uint16_t _panid)
+{
+  Mrf24j_Write(MRF24J_PANIDH, highByte(_panid));
+  Mrf24j_Write(MRF24J_PANIDL, lowByte(_panid));
+}
+// *************************************************************************
+void   Mrf24j_set_SourceAddress(uint16_t _mySourceAddress)  // Copied from mff24 library to this routine
+{
+  Mrf24j_Write(MRF24J_SADRH , highByte(_mySourceAddress));
+  Mrf24j_Write(MRF24J_SADRL , lowByte(_mySourceAddress));
+}
+uint16_t Mrf24j_get_SourceAddress(void)  // Copied from mff24 library to this routine
+{
+  return Mrf24j_Read(MRF24J_SADRH) * 0x100 + Mrf24j_Read(MRF24J_SADRL);
+}
+
+// *************************************************************************
+void Mrf24j_set_promiscuous(boolean _enabled)
+{
+  if (_enabled)
+  {
+    Mrf24j_Write(MRF24J_RXMCR, 0x01);
+  } else
+  {
+    Mrf24j_Write(MRF24J_RXMCR, 0x00);
+  }
+}
+// *************************************************************************
+
+void Mrf24j_set_channel(uint8_t _channel)
+{
+  Mrf24j_Write(MRF24J_RFCTRL0, (((_channel - 11) << 4) | 0x03));
+}
+// *************************************************************************
+
+void Mrf24j_set_palna(bool _enabled)
+{
+  if (_enabled)
+  {
+    Mrf24j_Write(MRF24J_TESTMODE, 0x07); // Enable PA/LNA on MRF24J40MB module.
+  } else
+  {
+    Mrf24j_Write(MRF24J_TESTMODE, 0x00); // Disable PA/LNA on MRF24J40MB module.
+  }
+}
+// *************************************************************************
+// TOC  Register WHAT messages for reception
+uint8_t RegisterWHATMessage (uint16_t _MessageID, void(*callback)(WHAT_Packet , uint8_t))
+{
+  uint8_t ret = WHATRxIndex; // this is the table entry index for THIS message.  This allows entries to be changed.
+  WHATRxMessage[WHATRxIndex].MessageID = _MessageID;
+  WHATRxMessage[WHATRxIndex].callback = callback;    // Function to be called if this message arrives.
+  WHATRxIndex++;
+  return ret;
+}
+
+// *************************************************************************
+// TOC Recieve MRF24J buffer
+void WHAT_Buffer_RX(void)
+{
+  // Read header
+  WHAT_Rx_Packet.frame_length = Mrf24j_Read(MRF24J_RxNFrameLength);
+  WHAT_Rx_Packet.frame_control = Mrf24j_Read(MRF24J_RxNFrmCntrl) + (Mrf24j_Read(MRF24J_RxNFrmCntrl2) * 0x100);
+  WHAT_Rx_Packet.pan_id =  Mrf24j_Read(MRF24J_RxN_PANIDL) + Mrf24j_Read(MRF24J_RxN_PANIDH) * 0x100;
+  WHAT_Rx_Packet.destination =  Mrf24j_Read(MRF24J_RxN_DESTL) + Mrf24j_Read(MRF24J_RxN_DESTH) * 0x100;
+  WHAT_Rx_Packet.sourceaddress = Mrf24j_Read(MRF24J_RxN_SOURCEL) + Mrf24j_Read(MRF24J_RxN_SOURCEH) * 0x100;
+  #ifdef RX_MONITOR
+  Serial.println(F("Length\tCONTROL\tRx pan_id\tdestination\tsource"));
+  Serial.print(WHAT_Rx_Packet.frame_length,DEC);Serial.print("\t  ");
+  Serial.print(WHAT_Rx_Packet.frame_control,HEX);Serial.print("\t  ");
+  Serial.print(WHAT_Rx_Packet.pan_id,HEX);Serial.print("\t  ");
+  Serial.print(WHAT_Rx_Packet.destination,HEX);Serial.print("\t  ");
+  Serial.println(WHAT_Rx_Packet.sourceaddress,HEX);
+  #endif
+  
+  // read the payload
+  //Serial.print(F("Adr:0x"));Serial.print(WHAT_ADR_PAYLOADSTART,HEX);Serial.print(F(":"));
+  for (uint8_t _i = 0; _i <= WHAT_Rx_Packet.frame_length; _i++)
+  {
+    WHAT_Rx_Packet.payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
+    #ifdef RX_MONITOR
+    //Serial.print(F(", 0x"));Serial.print(Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i),HEX);
+    #endif
+  }
+    //Serial.println(" ");
+  // Extra bytes are added to the FIFO.
+  //Serial.print("\nFCS low: ");Serial.print(Mrf24j_Read(WHAT_ADR_RxSTART + WHAT_Rx_Packet.frame_length+1),HEX);
+  //Serial.print("\nFCS high: ");Serial.print(Mrf24j_Read(WHAT_ADR_RxSTART + WHAT_Rx_Packet.frame_length+2),HEX);
+
+  WHAT_Rx_Packet.lqi = Mrf24j_Read(WHAT_ADR_RxSTART + WHAT_Rx_Packet.frame_length + 3);
+  WHAT_Rx_Packet.rssi = Mrf24j_Read(WHAT_ADR_RxSTART + WHAT_Rx_Packet.frame_length + 4);
+  //Serial.print("\nlqi: ");Serial.print(WHAT_Rx_Packet.lqi,HEX);
+  //Serial.print("\nrssi: ");Serial.println(WHAT_Rx_Packet.rssi,HEX);
+  //Serial.print("\n");
+}
+// *************************************************************************
+// TOC Transmit Message from buffer
+void Tx_What_Que(void)  // If more that one message is being send, this will send the next message once the previous message is gone.
+{ // Checks to see if a message is waiting to be placed in the transmit queue
+    //Serial.print(F("Pend/send "));Serial.print(TxQueue_PendIndex);Serial.println(" / ");Serial.print(TxQueue_SentIndex);
+
+  if(TxQueue_PendIndex != TxQueue_SentIndex)
+  {
+    if(!(Mrf24j_Read(MRF24J_TXNCON)& MRF24J_TXNTRIG))  // If the transmit bit has cleared...
+    {
+      // Header length is primarily derermined from the Frame Control, which
+      // decides if PANID, SOURCE,and DESTINATION are included in the header.
+      TxQueue[TxQueue_SentIndex].frame_length = TxQueue[TxQueue_SentIndex].header_length + TxQueue[TxQueue_SentIndex].payload[0];
+      Mrf24j_Write(MRF24J_TxNFrameLength, TxQueue[TxQueue_SentIndex].frame_length);
+      Mrf24j_Write(MRF24J_TxNHeadLength, TxQueue[TxQueue_SentIndex].header_length);
+      Mrf24j_Write(MRF24J_TxNFrmCntrl, lowByte(TxQueue[TxQueue_SentIndex].frame_control));
+      Mrf24j_Write(MRF24J_TxNFrmCntrl2, highByte(TxQueue[TxQueue_SentIndex].frame_control));
+      Mrf24j_Write(MRF24J_TxNSeq, TxQueue[TxQueue_SentIndex].sequence_number);
+      //Mrf24j_Write(MRF24J_TxNFrmCntrl, 0b01100001);
+      //Mrf24j_Write(MRF24J_TxNFrmCntrl2, 0b10001000);
+      //Mrf24j_Write(MRF24J_TxNSeq, 1);
+      Mrf24j_Write(MRF24J_TxN_PANIDL, lowByte(TxQueue[TxQueue_SentIndex].pan_id));
+      Mrf24j_Write(MRF24J_TxN_PANIDH, highByte(TxQueue[TxQueue_SentIndex].pan_id));
+      Mrf24j_Write(MRF24J_TxN_DESTL, lowByte(TxQueue[TxQueue_SentIndex].destination));
+      Mrf24j_Write(MRF24J_TxN_DESTH, highByte(TxQueue[TxQueue_SentIndex].destination));
+      Mrf24j_Write(MRF24J_TxN_SOURCEL, lowByte(TxQueue[TxQueue_SentIndex].sourceaddress));
+      Mrf24j_Write(MRF24J_TxN_SOURCEH, highByte(TxQueue[TxQueue_SentIndex].sourceaddress));
+    
+      /*
+        Serial.print("Header Length (TX Buf 0): ");Serial.println(Mrf24j_Read(MRF24J_TxNHeadLength),HEX);
+        Serial.print("\tPacket Length (TX Buf 1): ");Serial.println(Mrf24j_Read(MRF24J_TxNFrameLength),HEX);
+        Serial.print("\tFrame Control Low byte (TX Buf 2): ");Serial.println(Mrf24j_Read(MRF24J_TxNFrmCntrl),HEX);
+        Serial.print("\tFrame Control High byte (TX Buf 3): ");Serial.println(Mrf24j_Read(MRF24J_TxNFrmCntrl2),HEX);
+        Serial.print("\tSequence number (TX Buf 4): ");Serial.println(Mrf24j_Read(MRF24J_TxNSeq),HEX);
+        Serial.print("\tPANID (TX Buf 5,6): ");Serial.print(Mrf24j_Read(MRF24J_TxN_PANIDH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_PANIDL),HEX);
+        Serial.print("\tDestination (TX Buf 7,8): ");Serial.print(Mrf24j_Read(MRF24J_TxN_DESTH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_DESTL),HEX);
+        Serial.print("\tSource (TX Buf 9/A): ");Serial.print(Mrf24j_Read(MRF24J_TxN_SOURCEH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_SOURCEL),HEX);
+        Serial.print("\t\tPayloadSize (TX Buf B): ");Serial.println(Mrf24j_Read(MRF24J_TxN_PAYLOADSTART),HEX);
+        Serial.print("\t\tPayloadByte1 (TX Buf C): ");Serial.println(Mrf24j_Read(MRF24J_TxN_PAYLOADSTART+1),HEX);
+    
+    
+        Serial.print("\n");
+        Serial.print("Header Length (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].header_length,HEX);
+        Serial.print("\tPacket Length (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].frame_length,HEX);
+        Serial.print("\tFrame Control (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].frame_control,HEX);
+        Serial.print("\tDestination (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].destination,HEX);
+        Serial.print("\tPANID (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].pan_id,HEX);
+        Serial.print("\tSource (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].sourceaddress,HEX);
+      */
+      // Now load the payload:
+      uint8_t _payloadSize = TxQueue[TxQueue_SentIndex].payload[0];  //User must supply payload length in the first byte of the array.
+      Mrf24j_Write(MRF24J_TxN_PAYLOADSTART, _payloadSize);
+      for (uint8_t _i = 1; _i <= _payloadSize; _i++)
+      {
+        Mrf24j_Write(MRF24J_TxN_PAYLOADSTART + _i, TxQueue[TxQueue_SentIndex].payload[_i]);
+        // Serial.println(TxQueue[TxQueue_SentIndex].payload[_i]);
+      }
+    
+      Mrf24j_Write(MRF24J_TXNCON, MRF24J_TXNTRIG);  // Transmit the packet
+      //Serial.println(Mrf24j_Read(MRF24J_TXSTAT),BIN);
+      TxQueue_SentIndex++; if(TxQueue_SentIndex > NumWHATTxMessages) TxQueue_SentIndex=0;
+      //Serial.print("Tx ");Serial.println(TxQueue_SentIndex);
+    }
+  }
+}
+
+// *************************************************************************
+// TOC Put new message into buffer
+void WHAT_TransmitPacket (WHAT_Packet _WHAT_Tx_Packet)
+{
+  // the transmit packet is placed in the buffer to be transmitted.
+      TxQueue[TxQueue_PendIndex] = _WHAT_Tx_Packet;
+      TxQueue_PendIndex++; if(TxQueue_PendIndex > NumWHATTxMessages) TxQueue_PendIndex=0;
+      //Serial.println(TxQueue_PendIndex);
+      //Tx_What_Que(); // go ahead and try to send it now.
+
+  //Mrf24j_Write(MRF24J_TXNCON, MRF24J_TXNTRIG);  // Transmit the packet
+  //Serial.println(Mrf24j_Read(MRF24J_TXSTAT),BIN);
+}
+// *************************************************************************
+uint8_t Mrf24j_Read(uint16_t _address)
+{
+  uint8_t _ret;
+
+  digitalWrite(WHAT_CHIP_SELECT, LOW);  // Activate the chip
+
+  // Determine if the address is a "short" or "Long" address:
+  // If the high byte is 0, it is a short address
+  if (highByte(_address) == 0)
+  {
+    // This is a SHORT READ.
+    // When determining the address,  Bit0 must be 0 to read(1 to WRITE), and for bit 8 0=short addresses(1=Long address).
+    SPI.transfer((lowByte(_address) << 1) & 0b01111110);
+    _ret = SPI.transfer(0x00);    // read the data byte (by writing a byte, since the Arduino is the SPI master device responsible for clocking)
+    digitalWrite(WHAT_CHIP_SELECT, HIGH); // de-select the chip select.
+    return _ret; // send back the data that was read from the register.
+  }
+  else
+  {
+    // If the high byte is NOT ZERO, it is a long address
+    //  Long Addresses use 3 total bytes:
+    //  most significant bit is 1, next 10 are the address, 12th is 0=read/1=write, 4 "clock" bits, 1 byte data
+    // *** NOTE *** long address requires 4 "clock bits" between address and Data.
+    //  This is accomplished by LEFT JUSTIFYING the address.
+    //  Using "#define  MRF24J_SLPCON0" (Address 211)as an example....
+    //  The register address listed in the spec is "211h"
+    //      Which in Binary is           0000 0010 0001 0001
+    //  The ADDRESS is only 10 bits, but LONG addresses BEGIN with a 1, so left shift the number 5 times, then SET the high bit.
+    //        Register address shifted left 5 times - 0100 0010 0010 0000
+    //        Forcing the first bit high becomes    - 1100 0010 0010 0000
+    //  If this parameter is to be WRITTEN, 12th bit sent must be a 1. (OR with 0x10)
+    //            The new number becomes         -  1100 0010 0011 0000
+    //  So the table entry is (converted back to Hex) -  C    2    3    0
+    //  If this were a READ parameter, it would be    -  C    2    2    0
+    //  A quick visual indication is if the number is EVEN, it is a read, but ODD numbers are WRITES.
+    _address = _address << 5;  // the raw address is only 10 bits.  rotating it left 4 spots leaves the MSB (long/short indicator) as 0, and the top 7 bits in the high byte of the address.
+    _address |= 0x8000;   // Set the "Long" address bit and leave the "write" bit clear.
+    SPI.transfer(highByte(_address));  // set the high bit to indicate "long address" that was previously Zeroed out, and transfer the address
+    SPI.transfer(lowByte(_address));  //  use 0x10 to set(for writing) the read/write bit of the address and transfer the rest of the address.
+    _ret = SPI.transfer(0x00);    // read the data byte (by writing a byte, since the Arduino is the SPI master device responsible for clocking)
+    digitalWrite(WHAT_CHIP_SELECT, HIGH); // de-select the chip select.
+    return _ret; // send back the data that was read from the register.
+  }
+}
+// *************************************************************************
+
+void Mrf24j_Write(uint16_t _address, uint8_t _data)
+{
+  pinMode(WHAT_CHIP_SELECT, OUTPUT);
+  digitalWrite(WHAT_CHIP_SELECT, LOW);  // Activate the chip
+
+  // Determine if the address is a "short" or "Long" address:
+  // If the high byte is 0, it is a short address
+  if (highByte(_address) == 0)
+  {
+    // This is a SHORT write.
+    // When determining the address,  Bit0 must be 0 to read/1 to WRITE, and for bit 8 0=short addresses/1=Long address.
+    //Serial.print("Short ");Serial.print(_address,HEX);Serial.print("\t Data: ");Serial.println(_data,HEX);
+    //Serial.print("\tRaw Short: ");Serial.println(_address,HEX);
+    //_address = (lowByte(_address)<<1);
+    //Serial.print("\t<<1 : ");Serial.println(_address,HEX);
+    //_address = (_address & 0b01111110);
+    //Serial.print("\t & 0x7E : ");Serial.println(_address,HEX);
+    //_address = (_address | 0b00000001);
+    //Serial.print("\t | 1 : ");Serial.println(_address,HEX);
+    _address = (_address << 1 & 0b01111110) | 0b00000001;
+    SPI.transfer(_address);
+    SPI.transfer(_data);  // Write the data byte.
+    //Serial.print("\t Send ");Serial.print(_address,HEX);Serial.print("\t Data: ");Serial.println(_data,HEX);
+  }
+  else
+  {
+    // If the high byte is NOT ZERO, it is a long address
+    //  Long Addresses use 3 total bytes:
+    //  most significant bit is 1, next 10 are the address, 12th is 0=read/1=write, 4 "clock" bits, 1 byte data
+    // *** NOTE *** long address requires 4 "clock bits" between address and Data.
+    //  This is accomplished by LEFT JUSTIFYING the address.
+    //  Using "#define  MRF24J_SLPCON0" (Address 211)as an example....
+    //  The register address listed in the spec is "211h"
+    //      Which in Binary is           0000 0010 0001 0001
+    //  The ADDRESS is only 10 bits, but LONG addresses BEGIN with a 1, so left shift the number 5 times, then SET the high bit.
+    //        Register address shifted left 5 times - 0100 0010 0010 0000
+    //        Forcing the first bit high becomes    - 1100 0010 0010 0000
+    //  If this parameter is to be WRITTEN, 12th bit sent must be a 1. (OR with 0x10)
+    //            The new number becomes         -  1100 0010 0011 0000
+    //  So the table entry is (converted back to Hex) -  C    2    3    0
+    //  If this were a READ parameter, it would be    -  C    2    2    0
+    //  A quick visual indication is if the number is EVEN, it is a read, but ODD numbers are WRITES.
+    //Serial.print(" long _address : ");Serial.print(_address,HEX);Serial.print("\Data: ");Serial.println(_data,HEX);
+    _address = _address << 5;  // the raw address is only 10 bits.  rotating it left 1 spots leaves the MSB (long/short indicator) as 0, and the top 7 bits in the high byte of the address.
+    _address |= 0x8010;   // Set the "Long" address bit and SET the "write" bit.
+    SPI.transfer(highByte(_address));  // set the high bit to indicate "long address" that was previously Zeroed out, and transfer the address
+    SPI.transfer(lowByte(_address));  //  use 0x10 to set(for writing) the read/write bit of the address and transfer the rest of the address.
+    SPI.transfer(_data);         // and finally the data that is being sent to that address.
+    //Serial.print("_address ");Serial.println(_address,HEX);
+  }
+  digitalWrite(WHAT_CHIP_SELECT, HIGH); // de-select the chip select.
+}
+
+// *************************************************************************
+// TOC EEPROM initialization
+#define EEPROM_USED_FLAG_LOCATION EEPROM_WHAT_LOCATION
+// I moved this to the main page so it is easier to edit.  //#define USED_EEPROM_VALUE 0x7A    // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. 
+#define EEPROM_myPANIDL_LOCATION  EEPROM_USED_FLAG_LOCATION + 1
+#define EEPROM_myPANIDH_LOCATION  EEPROM_myPANIDL_LOCATION + 1
+#define EEPROM_mySourceAddressL_LOCATION  EEPROM_myPANIDH_LOCATION + 1
+#define EEPROM_mySourceAddressH_LOCATION  EEPROM_mySourceAddressL_LOCATION + 1
+#define EEPROM_myParentAddressL_LOCATION  EEPROM_mySourceAddressH_LOCATION + 1
+#define EEPROM_myParentAddressH_LOCATION  EEPROM_myParentAddressL_LOCATION + 1
+#define EEPROM_myLatchKeyNumberL_LOCATION  EEPROM_myParentAddressH_LOCATION + 1
+#define EEPROM_myLatchKeyNumberH_LOCATION  EEPROM_myLatchKeyNumberL_LOCATION + 1
+#define EEPROM_preemie_State_LOCATION EEPROM_myLatchKeyNumberH_LOCATION + 1
+#define EEPROM_LINK_LOCATION EEPROM_preemie_State_LOCATION + 1
+#define _EEPROM_Child_LOCATION (EEPROM_LINK_LOCATION + (numWHATLinks*2) + 1)
+
+void  WHAT_EEPROM(void)
+{
+  uint8_t _temp = EEPROM.read(EEPROM_USED_FLAG_LOCATION);
+    //for(uint8_t _i=EEPROM_USED_FLAG_LOCATION;_i<255;_i++)
+    //{ // recover index 0 to the end, even though index 0 actually is used for this device.
+    //  Serial.print(EEPROM.read(_i++),HEX);Serial.print("\t");
+    //}
+    //Serial.print("\n");
+
+  if (_temp == USED_EEPROM_VALUE)
+  {
+// TOC EEPROM retrieval
+    Serial.println(F("Restoring from EEPROM"));
+    // Values have already been saved and updated in EEPROM.
+    // Retrieve the EEPROM values to be used instead of default values
+    myPANID = EEPROM.read(EEPROM_myPANIDL_LOCATION) + (EEPROM.read(EEPROM_myPANIDH_LOCATION) * 0x100);
+    //Serial.print(F("EE read myPANID:0x"));Serial.println(myPANID,HEX);
+    mySourceAddress = EEPROM.read(EEPROM_mySourceAddressL_LOCATION) + (EEPROM.read(EEPROM_mySourceAddressH_LOCATION) * 0x100);
+    //Serial.print(F("EE read mySourceAddress:0x"));Serial.println(mySourceAddress,HEX);
+    myParentAddress = EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressH_LOCATION) * 0x100);
+    //Serial.print(F("EE read myParentAddress:0x"));Serial.println(myParentAddress,HEX);
+    myLatchKeyNumber = EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + (EEPROM.read(EEPROM_myLatchKeyNumberH_LOCATION) * 0x100);
+    //Serial.print(F("EE read myLatchKeyNumber:0x"));Serial.println(myLatchKeyNumber,HEX);
+      /* EEPROM.get( eeAddress, f ) for TEENSY!!!! */ 
+      /* but this is listed in another example   value = EEPROM.read(address);  */
+  
+    WHAT_preemie_state = (en_preemie_states)EEPROM.read(EEPROM_preemie_State_LOCATION);
+    //uint8_t temp = EEPROM.read(EEPROM_preemie_State_LOCATION);
+    //WHAT_preemie_state = (en_preemie_states)(temp);
+    // Retrieve link table.
+    uint8_t _EEPROM_Link_Location = EEPROM_LINK_LOCATION;
+    for(uint8_t _i=0;_i<numWHATLinks;_i++)
+    {
+      WHATLinks[_i] = (EEPROM.read(_EEPROM_Link_Location++) + EEPROM.read(_EEPROM_Link_Location++) * 0x100);
+      //#ifdef LINK_MONITOR
+      //Serial.print(F("Link EEPROM READ. Adr: 0x"));Serial.print(_EEPROM_Link_Location,HEX);Serial.print(F("\tLink EEPROM. Value: 0x"));Serial.println(WHATLinks[_i],HEX);
+     // #endif
+    }
+    
+    //Serial.print(F("EE read WHAT_preemie_state:0x"));Serial.println(WHAT_preemie_state);
+    // reload all child addresses:
+    uint8_t _EEPROM_Child_Location = _EEPROM_Child_LOCATION;
+    for(uint8_t _i=1;_i<ChildMaxIndex;_i++)
+    { // recover index 0 to the end, even though index 0 actually is used for this device.
+      myChildren[_i].ChildAddress = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      myChildren[_i].LatchKeyValue = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      myChildren[_i].RelationshipType = EEPROM.read(_EEPROM_Child_Location++);
+      myChildren[_i].Security = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      //Serial.println(_EEPROM_Child_Location);
+    }
+  }
+  else
+  {
+    WHAT_Default_EEPROM_Values(); // Reset PANID, and all EEPROM stored addresses to 0xFFFF
+    WHAT_StoreEEPROM();
+  }
+}
+
+// TOC EEPROM Storage
+void WHAT_StoreEEPROM(void)
+{
+  Serial.print(F("Saving to EEPROM. Starting Address: 0x"));Serial.println(EEPROM_myPANIDL_LOCATION,HEX);
+  //Serial.print("myPANID:");Serial.print(myPANID,HEX);
+  EEPROM.write(EEPROM_myPANIDL_LOCATION, lowByte(myPANID)); EEPROM.write(EEPROM_myPANIDH_LOCATION, highByte(myPANID));
+  //Serial.print("\t EEmyPANID:");Serial.print((EEPROM.read(EEPROM_myPANIDH_LOCATION)*0x100 + EEPROM.read(EEPROM_myPANIDL_LOCATION)),HEX);
+  EEPROM.write(EEPROM_mySourceAddressL_LOCATION, lowByte(mySourceAddress)); EEPROM.write(EEPROM_mySourceAddressH_LOCATION, highByte(mySourceAddress));
+  //Serial.print("mySourceAddress:");Serial.println(EEPROM.read(EEPROM_mySourceAddressL_LOCATION) + (EEPROM.read(EEPROM_mySourceAddressL_LOCATION) * 0x100),HEX);
+  EEPROM.write(EEPROM_myParentAddressL_LOCATION, lowByte(myParentAddress)); EEPROM.write(EEPROM_myParentAddressH_LOCATION, highByte(myParentAddress));
+  //Serial.print("myParentAddress:");Serial.println(EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressL_LOCATION) * 0x100),HEX);
+  EEPROM.write(EEPROM_myLatchKeyNumberL_LOCATION, lowByte(myLatchKeyNumber)); EEPROM.write(EEPROM_myLatchKeyNumberH_LOCATION, highByte(myLatchKeyNumber));
+  //Serial.print("myLatchKeyNumber:");Serial.println(EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + (EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) * 0x100),HEX);
+//  EEPROM.write(EEPROM_myChildIndex_LOCATION, myChildIndex);
+  EEPROM.write(EEPROM_preemie_State_LOCATION, WHAT_preemie_state);
+  //Serial.print("WHAT_preemie_state:");Serial.println(EEPROM.read(EEPROM_preemie_State_LOCATION),HEX);
+  EEPROM.write(EEPROM_USED_FLAG_LOCATION, USED_EEPROM_VALUE);
+  //Serial.print("Used:");Serial.println(EEPROM.read(EEPROM_USED_FLAG_LOCATION),HEX);
+
+  _EEPROM_store_links();
+  _EEPORM_store_children();
+}
+void _EEPORM_store_children (void)
+{ //Having this as a seperate file allows just the children list to be updated.
+  // reset all child addresses:
+  uint8_t _EEPROM_Child_Location = _EEPROM_Child_LOCATION;
+  //Serial.print(F("_EEPROM_Child_Location. Adr: 0x"));Serial.println(_EEPROM_Child_Location,HEX);
+  for(uint8_t _i=1;_i<16;_i++)
+  { // Store index 0 to the end, even though index 0 actually is used for this device.
+    EEPROM.write(_EEPROM_Child_Location++, lowByte(myChildren[_i].ChildAddress)); EEPROM.write(_EEPROM_Child_Location++, highByte(myChildren[_i].ChildAddress));
+    EEPROM.write(_EEPROM_Child_Location++, lowByte(myChildren[_i].LatchKeyValue)); EEPROM.write(_EEPROM_Child_Location++, highByte(myChildren[_i].LatchKeyValue));
+    EEPROM.write(_EEPROM_Child_Location++, myChildren[_i].RelationshipType); 
+    EEPROM.write(_EEPROM_Child_Location++, lowByte(myChildren[_i].Security)); EEPROM.write(_EEPROM_Child_Location++, highByte(myChildren[_i].Security));
+    //Serial.println(_EEPROM_Child_Location,HEX);
+   }
+   Serial.print(F("End _EEPROM_Location. Adr: 0x"));Serial.println(_EEPROM_Child_Location,HEX);
+}
+
+void _EEPROM_store_links(void)
+{ //Having this as a seperate file allows just the link list to be updated.
+// Store link table.
+  uint8_t _EEPROM_Link_Location = EEPROM_LINK_LOCATION;
+  //Serial.print(F("_EEPROM_Link_Location. Adr: 0x"));Serial.println(_EEPROM_Link_Location,HEX);
+  for(uint8_t _i=0;_i<numWHATLinks;_i++)
+  {
+  EEPROM.write(_EEPROM_Link_Location++, lowByte(WHATLinks[_i])); EEPROM.write(_EEPROM_Link_Location++, highByte(WHATLinks[_i]));
+  }
+}
+
+//void WHAT_SHOW_ALL_USED_EEPROM (void)
+//{
+//  #ifdef EEPROM_WHAT_SHOW_VALUES
+//  Serial.print ("All EEPROM starting at Adr:0x");Serial.println(EEPROM_WHAT_LOCATION,HEX);
+//  for(uint8_t _i = EEPROM_WHAT_LOCATION;_i<255;_i++)
+//  {
+//    Serial.print ("Adr: 0x");Serial.print (_i,HEX);Serial.print (" = ");Serial.println(EEPROM.read(_i),HEX);
+//  }
+//  #endif
+//}
+
+// TOC PREEMIE EEPROM Values
+void WHAT_Default_EEPROM_Values(void)
+{
+  Mrf24j_set_pan(0xFFFF);
+  Mrf24j_set_SourceAddress(0xFFFF);
+  mySourceAddress = 0xFFFF;
+  myParentAddress = 0xFFFF;
+  myLatchKeyNumber = 0xFFFF;
+  myPANID = 0xFFFF;
+//  myChildIndex = 0;    // each child will be indexed into the "myChildren" array.
+  mySecurity = 0xFFFF;
+
+  // Reset all link addressses.
+  for(uint8_t _i=0;_i<numWHATLinks;_i++)
+  {
+    WHATLinks[_i]=0xFFFF;
+    //#ifdef LINK_MONITOR
+    //  Serial.print("Resetting Link");Serial.println(WHATLinks[_i],HEX);
+    //#endif
+  }
+  
+  // reset all child addresses:
+  for(uint8_t _i=1;_i<15;_i++)
+  { 
+    myChildren[_i].ChildAddress = 0xFFFF;
+    myChildren[_i].LatchKeyValue = 0xFFFF;
+    myChildren[_i].RelationshipType = 0;
+    myChildren[_i].Security = 0xFFFF;
+  }
+  WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03;
+}
+
+// TOC Restore PREEMIE state
+bool preemie_check_restore(void)
+{      //Implimenting EEPROM and preemie recovery.
+       //- once a device has been connected to a network, it can be restored to its preemie state
+       //- DURING POWER-UP  **HOLD** the network button.
+       //- When the RED Light starts a fast blink, release the network button.
+       //- the RED light will start blinking slower.
+       //- Press the network button again momentarily, and preemie mode will be entered.
+       //- the device will start the slow blue blink/join request.
+  #define _PREEMIE_BLINK_RATE 500         // Very fast blink if button is held at power on.
+  #define _PREEMIE_BLINK_RATE2 100        // Change the blink rate in the second stage of restore.
+  #define _Preemie_restore_blink_timer WHAT_Reusable_Timer1
+  #define _PREEMIE_RESTORE_TIMEOUT 10000 // Button must be released within this amount of time to re-set as preemie.
+  #define _Preemie_restore_timer WHAT_Reusable_Timer2
+  // Network button is active high, so make some defines to make it more readable.
+  
+  //pinMode(NETWORK_BUTTON,INPUT);
+
+  if((*_WHAT_network_button == HIGH) | (mySourceAddress == 0xFFFF)) return 0; //Restoring a preemie requires the button to be pressed at power on.  if NOT held, return from here. (Active HIGH)
+  //Serial.println(F("NetPressed"));
+  // Button is currently active (high).  Flash the light very fast and wait for the button to be released.
+  _Preemie_restore_timer =  millis() + _PREEMIE_RESTORE_TIMEOUT;  // Start the timer with a fresh timer value.
+  _Preemie_restore_blink_timer = millis() + _PREEMIE_BLINK_RATE;  // Start the timer with a fresh timer value.
+  while((_Preemie_restore_timer > millis()) & ((*_WHAT_network_button == HIGH))) // Button is active high
+  {
+    if(_Preemie_restore_blink_timer<millis()) 
+    {
+      _Preemie_restore_blink_timer = millis() + _PREEMIE_BLINK_RATE;
+      *_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_SEARCH_ON)? WHAT_NETWORK_SEARCH_OFF:WHAT_NETWORK_SEARCH_ON; // This is basically toggling red:  RED= !RED
+    }
+  }
+  //the program continues either because the button was released, OR the timer expired.
+  if((*_WHAT_network_button == HIGH))
+  { // The button was released.  Require it to be pressed again before making the preemie.
+    //Serial.println(F("NetReleased"));
+    _Preemie_restore_timer =  millis() + _PREEMIE_RESTORE_TIMEOUT; // restart the timer with a fresh timer value.
+    _Preemie_restore_blink_timer = millis() + _PREEMIE_BLINK_RATE2; // restart the timer with a fresh timer value.
+    while((_Preemie_restore_timer > millis()) & ((*_WHAT_network_button == LOW))) //Button is active high
+    {
+      if(_Preemie_restore_blink_timer<millis()) 
+      {
+        _Preemie_restore_blink_timer = millis() + _PREEMIE_BLINK_RATE2;
+        *_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_ERROR)? WHAT_NETWORK_ERROR_OFF:WHAT_NETWORK_ERROR;
+      }
+    }// End while waiting for button or timer. 
+    // either the button was released or the timer expired.
+    // if the timer expired, leave this routine.
+    if( _Preemie_restore_timer < millis()) {Serial.println(F("released too long.")); return false;}
+
+    // Timer did not expire, so the button must have been pressed again.
+  }// End if the button was released.
+  else
+  {// The button was held and never released.
+    // turn off the light and leave this routine.
+    //Serial.println(F("Never released. No restore."));
+    *_WHAT_network_light = WHAT_NETWORK_NONE;  //
+    return false;
+  }
+  //Serial.println(F("NetPressed. Criteria complete"));
+
+  // preemie creation criteria met.   restore to preemie state, and continue with program initialization
+  // Send an abandon network message so the parent will release the child slot, then revert to compile time values.
+  WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+  _WHAT_Tx_Packet.WHAT_MAC_MESSAGE; 
+  _WHAT_Tx_Packet.pan_id = myPANID;
+  _WHAT_Tx_Packet.destination = myParentAddress;
+  _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
+  uint8_t _index = 0;
+  _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
+  _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
+  _WHAT_Tx_Packet.payload[_index++] = highByte(ABANDON_CHILD_05);
+  _WHAT_Tx_Packet.payload[_index++] = lowByte(ABANDON_CHILD_05);
+  _WHAT_Tx_Packet.payload[_index++] = highByte(myLatchKeyNumber);
+  _WHAT_Tx_Packet.payload[_index++] = lowByte(myLatchKeyNumber);
+    WHAT_TransmitPacket(_WHAT_Tx_Packet);
+
+  WHAT_Default_EEPROM_Values();
+  WHAT_StoreEEPROM();
+  
+  Serial.println(F("Preemie state restored."));
+  *_WHAT_network_light = WHAT_NETWORK_NONE;  //
+  return true;
+}
+
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+// ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+#ifdef AUTO_ADDRESSING
+// %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+// *  Network creation: - This is all built into WHAT.ino, and enabled by #define AUTO_ADDRESSING
+
+#define _Offered_PANID  WHAT_Reusable_16t_1         // When joining a network, this is the PANID of the network being joined.
+#define _Offered_SourceAddress  WHAT_Reusable_16t_2 // when  joining a network, this is the lowest new address offered.
+#define _Offered_Parent WHAT_Reusable_16t_3
+#define _Offered_Latchkey WHAT_Reusable_16t_4      // this is the latchkey offered by the parent with the lowest offered address.
+
+// WHAT_Reusable_Message1 
+void holdingFunction(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  // The re-usable call has to reserve a function.
+  // This will be quickly re-assigned to Rx_PROPOSE_CHILD_NUMBER_07, once it is determined that this is a preemie.
+}
+
+/*
+  All new devices are programmed with PANID FFFF and source address FFFF (considered a preemie)
+    When a device recognizes it is a preemie (PANID and SA are FFFF), it will periodically send a "REQUEST_JOIN_NETWORK_02" message.
+
+    Rev 200203
+      At power on, preemie sends message: REQUEST_JOIN_NETWORK_03
+      Preemie has 2 possible paths:
+        1) Preemie sees another REQUEST_JOIN_NETWORK_03 (another preemie), so it creates a network:
+                - Send REQUEST_ACK_03 and wait for _5_ seconds.
+                - if REPLY_ACKNOWLEDGE_03 recieved, change PANID and try again.
+                - if timeout, use proposed PANID and source address 0000.
+        2) Preemie sees a NETWORK_ALERT_PREEMIE_03 message:
+                - increases BLUE blink rate and waits for NETWORK_ALLOW_PREEMIE_04 (created by a network member's network button activation.
+        3) Preemie sees a NETWORK_ALLOW_PREEMIE_04 message (ONLY after seeing a NETWORK_ALERT_PREEMIE_03 message):
+                - Along with NETWORK_ALLOW_PREEMIE_04 come PROPOSE_CHILD_NUMBER_07 messages.
+                - Preemie keeps the lowest parent/child address offered and joins network after _5_ seconds.
+                - sends ACCEPT_PARENT_08 message.
+      Adult has a couple of network creation options.
+        1) sees REQUEST_JOIN_NETWORK_03
+              - sends NETWORK_ALERT_PREEMIE_03 and if it has a valid child slot available sends PROPOSE_CHILD_NUMBER_07
+              - changes to WHAT_NEW_CHILD_REQ state.
+        2) sees NETWORK_ALERT_PREEMIE_03
+              - Monitors its network button.  If pressed, sends NETWORK_ALLOW_PREEMIE_04 and PROPOSE_CHILD_NUMBER_07
+        3) sees NETWORK_ALLOW_PREEMIE_04 (with or without seeing REQUEST_JOIN_NETWORK_03)
+              - sends PROPOSE_CHILD_NUMBER_07
+     Adult in WHAT_NEW_CHILD_REQ state
+        1) monitors its own network button,and (if pressed):
+            - sends NETWORK_ALLOW_PREEMIE_04
+            - Changes to WHAT_NEW_CHILD_ALLOWED state.
+        2) monitors network messages for NETWORK_ALLOW_PREEMIE_04
+            - changes to WHAT_NEW_CHILD_ALLOWED state.
+        3) monitors network for CHOOSE_NETWORK_05
+            - if chosen network number does not match this PANID, return to WHAT_PREEMIE_FINISHED state 
+        
+     Adult in WHAT_NEW_CHILD_ALLOWED
+        1) Monitors network for ACCEPT_PARENT_08
+           - If the accepted parent source matches this source:
+              o Verify recieved child address is valid and available.
+              o Add this child - Record latchkey value, and increment the child index.
+              o return to WHAT_PREEMIE_FINISHED state
+        2) monitors network for CHOOSE_NETWORK_05
+            - if chosen network number does not match this PANID, return to WHAT_PREEMIE_FINISHED state 
+
+    Other always monitored network messages:
+
+*/
+/*
+// Rx Message flags
+bool f_Rx_REQUEST_JOIN_NETWORK_03 = false;    // Preemie asking to join network
+bool f_Rx_NETWORK_ALERT_PREEMIE_03 = false;   // Notice from another device that a preemie is trying to join
+bool f_Rx_CHOOSE_NETWORK_05  = false;         // Notice to other networks that a network has accepted this preemie
+bool f_Rx_NETWORK_ALLOW_PREEMIE_04 = false;   // Notice to this preemie that it may accept its parent.
+bool f_Rx_PROPOSE_CHILD_NUMBER_07 = false;    // Preemie asking the network for a child number
+bool f_Rx_NETWORK_JOIN_COMPLETE_03 = false;   // Preeemie accepted a proposed parent 
+bool f_Rx_NETWORK_JOIN_ABORT_03 = false;      // User abort of the acceptance process.
+bool f_Rx_REPLY_ACKNOWLEDGE_03 = false;       // While a new network is forming, requests existing network to claim its PANID
+*/
+// TOC PREEMIE operations 
+void WHAT_CheckPreemie(void)
+{
+    static uint8_t _last_Preemie_state = 0xFF;    // used to see if the state has changed.
+    #define NETWORK_HELD_DELAY 3000    // Time before network button is considered "HELD"
+    #define Network_held WHAT_Reusable_Timer2   // IN multiple areas, this reusable timer is used for different purposes.
+    RX_WHAT();  // Check for any new WHAT messages, because this while loop has to be self contained.
+    Tx_What_Que();
+
+    // Expire any stale alert gating
+    if(gbl_preemie_alert_seen && (gbl_preemie_alert_expire <= millis()))
+    {
+      gbl_preemie_alert_seen = false;
+    }
+
+   switch (WHAT_preemie_state)
+    {
+      // ++++++++++++   New preemie has not seen a network yet     ++++++++++++
+      case WHAT_PRE_REQUEST_JOIN_NETWORK_03:
+        // TOC PREEMIE operations 
+                #define _BLINK_DELAY  1000  // No network seen blink rate
+                #define _BLINK_FAST   100   // Network seen faster blink rate
+                #define _RQST_WAIT_TIME 30000 //Wait 30 seconds to allow user to push network button.
+                #define _RQST_ACK_DELAY 5000  // wait 1 second after requesting an ACK before using the PANID
+                #define _blinkTimer WHAT_Reusable_Timer1  //This will not be active while other CASEs are active.
+                #define _WaitForResponses WHAT_Reusable_Timer2  //This will not be active while other CASEs are active.
+        
+                // New device.  request joining any network that might be availble.
+                // This is a "preemie" - this device is hoping to join a network, and repeatedly sends a request to join.
+                if (_last_Preemie_state != WHAT_preemie_state)
+                {
+                  _blinkTimer = millis(); // Used here to control the light blinking speed while in this state.
+                  _WaitForResponses = millis() + _RQST_WAIT_TIME; // Amount of time to collect addresses before accepting one.
+                  //Rx_NETWORK_ALLOW_PREEMIE_04 is a permanent reception message.
+                  WHATRxMessage[WHAT_Reusable_Message1].MessageID = NETWORK_ALERT_PREEMIE_03;   // This message comes once the network button is pressed.
+                  WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_NETWORK_ALERT_PREEMIE_03; // Message callback set here to collect the responses
+                  _last_Preemie_state = WHAT_preemie_state; // This prevents this section from running all the time.
+                  *_WHAT_network_light = WHAT_NETWORK_SEARCH_ON;  //
+                  #ifdef LINK_MONITOR
+                  Serial.println(F("Preemie Start"));Serial.println(millis());
+                  #endif
+                }
+                if (_blinkTimer <= millis())
+                {
+        // TOC    Request Joining Network 
+                  // toggle the network light and re-send the request for an address.
+                  _blinkTimer = millis() + _BLINK_DELAY;
+                  //digitalWrite( NETWORK_LIGHT, ! digitalRead(NETWORK_LIGHT)); // Make the network light solid ON.
+                  *_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_SEARCH_ON)? WHAT_NETWORK_SEARCH_OFF:WHAT_NETWORK_SEARCH_ON; // This is basically toggling blue:  BLUE= !BLUE // 
+                  // Tx.PANID and Tx.SOURCEADDRESS are defaulted to 0xFFFF
+                  WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+                  _WHAT_Tx_Packet.WHAT_MAC_MESSAGE; 
+                  Mrf24j_set_pan(myPANID);
+                  Mrf24j_set_SourceAddress(mySourceAddress);
+                  _WHAT_Tx_Packet.pan_id = 0xFFFF;
+                  _WHAT_Tx_Packet.destination = 0xFFFF;
+                  _WHAT_Tx_Packet.sourceaddress = 0xFFFF;
+                  uint8_t _index = 0;
+                  _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_JOIN_NETWORK_03);
+                  _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_JOIN_NETWORK_03);
+                  WHAT_TransmitPacket(_WHAT_Tx_Packet);
+                  #ifdef LINK_MONITOR
+                  Serial.println(F("Tx WHAT_PRE_REQUEST_JOIN_NETWORK_03 ")); Serial.println(millis());
+                  #endif
+                }
+                // ooo One way out is to form a network ooo
+        // TOC    Creating a new network 
+                if(f_Rx_REQUEST_JOIN_NETWORK_03)
+                { // Another preemie is looking for a network, and this device has not joined a network.
+                  // Form a new network.
+                  f_Rx_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
+                  myPANID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
+                  Mrf24j_set_pan(myPANID);
+             
+                  //prepare to recieve an ACK request from the chosen PANID. If other devices respond, then this address is already used.
+                  //re-configure the reusable message to receive an ACK from an existing network.
+                  WHATRxMessage[WHAT_Reusable_Message1].MessageID = REPLY_ACKNOWLEDGE_03;
+                  WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_REPLY_ACKNOWLEDGE_03; // Message callback set here to collect the responses
+              
+        // TOC    Avoiding network conflicts 
+                  // Now send the ACK request
+                  // If anything replies, then this network already exists, and a new PANID will be chosen.
+                  Tx_REQUEST_ACK_03();
+                        
+                  // Start a delay timer.  If it expires with no ACK reply, this PANID is acceptable.
+                  _WaitForResponses = millis() + _RQST_ACK_DELAY;
+                  WHAT_preemie_state = WHAT_PRE_NEW_NETWORK_ACK; // change to this state.
+                  Serial.print(F("Creating Network @ ")); Serial.println(myPANID, HEX);
+                  *_WHAT_network_light = WHAT_NETWORK_CREATING_ON;  //Creating network, and delaying to see if this PANID is already used.
+                }
+                // ooo another way out is to be allowed into an existing network ooo
+        // TOC    Network identified, waiting to be allowed 
+                 if(f_Rx_NETWORK_ALERT_PREEMIE_03)
+                {
+                  f_Rx_NETWORK_ALERT_PREEMIE_03 = false; // clear the message flag when it is used.
+                  WHAT_preemie_state = WHAT_NETWORK_SEEN;
+                  //#ifdef LINK_MONITOR
+                  //Serial.print(F("AnotherNetworkSeen: ")); //Serial.println(millis(), HEX);
+                  //#endif
+               }
+                break;
+
+     // ++++++++++++   Preemie is forming a network      ++++++++++++
+      case WHAT_PRE_NEW_NETWORK_ACK:
+        // TOC    Creating a new network 
+               //Serial.println("wait for NETWORK_ACK");
+                // This device created a network, and sent an ACK request to verify its PANID is not used.
+                // wait here for a period of time, and if no reply arrives, then make the network.
+                if( f_Rx_REPLY_ACKNOWLEDGE_03)
+                  {// Ack seen.  try a different address.
+                    // As a preemie converting to a network creator, this device will send a
+                    // request for ACK to see if the PANID it chose is already used.
+                    // So, this message should NOT be recieved, (because to get to this point,
+                    //  2 preemies are within range of each other, and they have not been accepted into another
+                    //  network, and the new PANID is randomly chosen, so it will probably not match.
+                    // But if it DOES happen, just try a different PANID.
+                    f_Rx_REPLY_ACKNOWLEDGE_03 = false; // clear the message flag when it is used.
+                    Tx_REQUEST_ACK_03();
+                
+                    // Start a delay timer.  If it expires with no ACK reply, this PANID is acceptable.
+                    WHAT_Reusable_Timer1 = millis() + _RQST_ACK_DELAY;
+                    //WHAT_preemie_state = WHAT_PRE_NEW_NETWORK_ACK; // stay in this state.
+                  #ifdef LINK_MONITOR
+                  Serial.print(F("Trying new PANID : ")); Serial.println(millis());
+                  #endif
+                  }
+                if (_WaitForResponses <= millis())
+                {
+                  //Use the current PANID and leave PREEMIE mode.
+                  //Serial.print(WHAT_Reusable_Timer1); Serial.print(" <- Timer     millis-> "); Serial.println(millis());
+                  Serial.print(F("Network Created. PANID: 0x")); Serial.println(myPANID, HEX);
+                  //WHAT_Default_EEPROM_Values();
+                  mySourceAddress = 0;  // When forming a new network, start with the address 0x0000
+                  myParentAddress = 0;  // This is the only device that is its own parent.
+                  myLatchKeyNumber = millis();  // This device will make its own latchkey number (which really can not be used, because no one will know it.
+                  //myChildIndex = 0;             // When forming a new network, this device will start with no children.
+                  mySecurity = myLatchKeyNumber; // use this device's latchkey number as the base security number.
+                  //Mrf24j_set_pan(myPANID);
+                  Mrf24j_set_SourceAddress(mySourceAddress);
+              
+                  //Serial.print("Pre-Store PANID:0x"); Serial.println(myPANID);
+                  WHAT_StoreEEPROM();
+                  Serial.println(F("EEPROM Stored"));
+        
+                  WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Control will transition to the program loop from here.
+                  *_WHAT_network_light = WHAT_NETWORK_CREATED; //This device created a network.
+                  Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                }
+                break;
+
+      // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
+      // ++++++++++++   Preemie is joining a network      ++++++++++++
+      case WHAT_NETWORK_SEEN:
+        // TOC    Network identified, waiting to be allowed (only if ALERT was seen)
+                if (_last_Preemie_state != WHAT_preemie_state)
+                {
+                  _last_Preemie_state = WHAT_preemie_state; // This prevents this section from running all the time.
+                  _WaitForResponses = millis() + _RQST_WAIT_TIME; // reset the timer so it can leave if messages stop.
+                  _blinkTimer = millis() + _BLINK_FAST;
+                  gbl_preemie_alert_seen = true;
+                  gbl_preemie_alert_expire = millis() + PREEMIE_ALERT_HOLD_MS;
+                  #ifdef LINK_MONITOR
+                  Serial.print(F("PREEMIE sees network (alert): ")); //Serial.println(millis());
+                  #endif
+                  // This is the initial run through for this state.
+                  // Keep an eye out for offered child slots.
+                  _Offered_PANID = 0xFFFF; // These are collected in  Rx_PROPOSE_CHILD_NUMBER_07 to
+                  _Offered_SourceAddress = 0xFFFF; // identify the lowest offered address seen.
+                  _Offered_Latchkey = 0xFFFF;
+                  WHATRxMessage[WHAT_Reusable_Message1].MessageID = NETWORK_ALLOW_PREEMIE_04;  // these are prospective parents offering free addresses.
+                  WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_NETWORK_ALLOW_PREEMIE_04; // Message callback set here to collect the responses
+                }
+              
+                if (_blinkTimer <= millis())
+                {
+                  _blinkTimer = millis() + _BLINK_FAST;
+                 *_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_JOINING_ON)? WHAT_NETWORK_JOINING_OFF:WHAT_NETWORK_JOINING_ON; // Fast blue blink: alert seen
+                }
+                if (_WaitForResponses <= millis())
+                {
+                  // When the LONG timeout occurs, revert to the request state.
+                  WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03;
+                  *_WHAT_network_light = WHAT_NETWORK_NONE;
+                  gbl_preemie_alert_seen = false;
+                  #ifdef LINK_MONITOR
+                  Serial.print(F("Response Timeout : ")); Serial.println(millis());
+                  #endif
+                }
+                if(f_Rx_NETWORK_ALLOW_PREEMIE_04 && gbl_preemie_alert_seen)
+                {// This preemie has been accepted to a network after alert was seen.
+                  f_Rx_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
+                  gbl_preemie_alert_seen = false; // consume the alert gate
+                  if (_Offered_PANID < 0xFFFF) // Only do this if a PANID was offered.
+                    {
+                      WHAT_preemie_state = WHAT_PRE_NETWORK_ALLOW_PREEMIE_04; // proceed to allow window
+                      _WaitForResponses = millis() + _RQST_ACK_DELAY;
+                  #ifdef LINK_MONITOR
+                    Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID,HEX);
+                  #endif
+                      *_WHAT_network_light = WHAT_NETWORK_JOINING_ON; // Alternate blue/green handled in next state
+                    }
+                }
+                 // If an abort message is recieved, return to the beginning.
+                  if(f_Rx_NETWORK_JOIN_ABORT_03) 
+                  {
+                    f_Rx_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
+                    WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+                    *_WHAT_network_light = WHAT_NETWORK_ERROR; //Give the lamp color/text that indicates that the connection was aborted.
+                    gbl_preemie_alert_seen = false;
+                  #ifdef LINK_MONITOR
+                    Serial.print(F("Joining error : ")); Serial.println(millis());
+                  #endif
+                  }
+                break;
+        
+      // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
+      // ++++++++++++  Preemie is waiting for a proposed ID    ++++++++++++
+      case WHAT_PRE_NETWORK_ALLOW_PREEMIE_04:
+        // TOC    Accepted to existing network (must have prior alert)
+                // A button on the network has permitted this preemie to join.
+                // This preemie responds with acceptance of the lowest proposed address.
+                if (_blinkTimer <= millis())
+                {
+                  _blinkTimer = millis() + _BLINK_FAST;
+                  // Alternate blue/green to indicate allow/proposal window
+                  *_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_JOINING_ON)? WHAT_NETWORK_JOINING_OFF:WHAT_NETWORK_JOINING_ON;
+                }
+                  if (_WaitForResponses <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
+                  {
+                    if(_Offered_SourceAddress < 0xFFFF)
+                    {  
+                      myPANID = _Offered_PANID;
+                      Mrf24j_set_pan(myPANID);
+                      mySourceAddress = _Offered_SourceAddress;
+                      Mrf24j_set_SourceAddress(mySourceAddress);
+                      WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+                      _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+                      _WHAT_Tx_Packet.pan_id = _Offered_PANID;
+                      _WHAT_Tx_Packet.sourceaddress = _Offered_SourceAddress;
+                      myParentAddress = _Offered_Parent;
+                      myLatchKeyNumber = (uint16_t)millis();  //Create a random latch-key number
+                      _WHAT_Tx_Packet.pan_id = myPANID;
+                      _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
+                      _WHAT_Tx_Packet.destination = myParentAddress;   // Direct this message at the parent that accepted it.
+                      uint8_t _index = 0;
+                      _WHAT_Tx_Packet.payload[_index++] = 9; //Total payload length (including this byte)
+                      _WHAT_Tx_Packet.payload[_index++] = 8; //MID length (including this byte)
+                      _WHAT_Tx_Packet.payload[_index++] = highByte(ACCEPT_PARENT_08);
+                      _WHAT_Tx_Packet.payload[_index++] = lowByte(ACCEPT_PARENT_08);
+                      _WHAT_Tx_Packet.payload[_index++] = highByte(myParentAddress);
+                      _WHAT_Tx_Packet.payload[_index++] = lowByte(myParentAddress);
+                      _WHAT_Tx_Packet.payload[_index++] = highByte(myLatchKeyNumber);
+                      _WHAT_Tx_Packet.payload[_index++] = lowByte(myLatchKeyNumber);
+                      _WHAT_Tx_Packet.payload[_index++] = WHAT_PERMANENT;           // All devices are permanent at this point.
+                         WHAT_TransmitPacket(_WHAT_Tx_Packet);
+        
+                      WHAT_preemie_state = WHAT_PREEMIE_FINISHED;
+                      WHAT_StoreEEPROM();
+                      *_WHAT_network_light = WHAT_NETWORK_JOINED;  // Network light to indicate someone else's network was sucessfully joined.
+                      Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                      Serial.println(F("Tx Parent Accepted"));
+                      Serial.println(F("PANID\tmySourceAddress\tmyLatchKeyNumber\tmyParentAddress"));
+                      Serial.print(myPANID,HEX);Serial.print("\t");Serial.print(mySourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(myParentAddress,HEX);
+                    }
+                    else
+                    { // No source address was offered. re-start the preemie process.
+                      WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+                      *_WHAT_network_light = WHAT_NETWORK_ERROR;  //blip of red indication network was not joined.
+                    }
+                  }
+                 // If an abort message is recieved, return to the beginning.
+                  if(f_Rx_NETWORK_JOIN_ABORT_03) 
+                  {
+                    f_Rx_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
+                    WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+                    *_WHAT_network_light = WHAT_NETWORK_ERROR;  //blip of red indication network was not joined.
+                 }
+        
+                break;
+      case WHAT_PREEMIE_FINISHED:
+
+                // This case results when booting and restoring from EEPRPOM as an adult.
+                // the software always does "Check preemie" on boot, so nothing really to
+                // do if this device is not a preemie, so just exit.
+                break;
+      default:
+                //Serial.print(F("Unhandled PREEMIE state:"));Serial.println(WHAT_preemie_state);
+                // If in an invalid state, revert to being a preemie.
+                 #ifdef LINK_MONITOR
+                  //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
+                  Serial.print(F("Undefined Preemie state : ")); Serial.println(WHAT_preemie_state,HEX);
+                #endif
+                WHAT_preemie_state = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+                *_WHAT_network_light = WHAT_NETWORK_ERROR;  //blip of red indication network was not joined.
+                break;
+  }// Switch
+  //Serial.print(F("Not a Preemie: PANID:0x"));Serial.print(myPANID,HEX); Serial.print(F("\t SourceAddress:0x")); Serial.print(mySourceAddress,HEX); Serial.print(F("\t ParentAddress:0x")); Serial.println(myParentAddress,HEX);
+  //WHAT_network_seen = false;  // Just in case preemie mode is re-entered after a network was seen.
+}// Check Preemie
+ 
+// ******************** Rx Messages
+// non-reusable message.  different functions when a preemie.
+// TOC Individual Recieve messages
+void Rx_REQUEST_JOIN_NETWORK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+   f_Rx_REQUEST_JOIN_NETWORK_03 = true;
+}  
+
+// TOC Individual Recieve messages 
+void Tx_REQUEST_ACK_03(void)
+{        
+    myPANID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
+    WHAT_Packet _WHAT_Tx_Packet;
+    _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+    // Now send the ACK request
+    Mrf24j_set_pan(myPANID);
+    _WHAT_Tx_Packet.pan_id = myPANID;      // Use the desired PANID so only that PANID will reply (if it is already used)
+    _WHAT_Tx_Packet.destination = 0xFFFF;  // Send to ANY device with this PANID.
+    _WHAT_Tx_Packet.sourceaddress = 0xFFFF;  // no source address claimed yet, in case another network has this address.
+    uint8_t _index = 0;
+    _WHAT_Tx_Packet.payload[_index++] = 3; //Total payload length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 2; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_ACK_03);
+    _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_ACK_03);
+      WHAT_TransmitPacket(_WHAT_Tx_Packet);
+                 #ifdef LINK_MONITOR
+                  Serial.print(F("Asking for ACK on :0x")); Serial.println(myPANID);
+                  //Serial.print(F("Undefined Preemie state : ")); Serial.println(WHAT_preemie_state,HEX);
+                #endif
+}
+
+// TOC Individual Recieve messages 
+// WHAT_Reusable_Message1 
+void Rx_REPLY_ACKNOWLEDGE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+// Rx Message flags
+  f_Rx_REPLY_ACKNOWLEDGE_03 = true;       // While a new network is forming, requests existing network to claim its PANID
+                 #ifdef LINK_MONITOR
+                  Serial.print(F("Recieve ACK from :0x")); Serial.println(_WHAT_Rx_Packet.pan_id);
+                  //Serial.print(F("Undefined Preemie state : ")); Serial.println(WHAT_preemie_state,HEX);
+                #endif
+}
+
+// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+// &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
+
+// TOC Adult operations 
+void WHAT_CheckAdult(void)
+{
+  #define _BLINK_DELAY  1000  // No network seen blink rate
+  #define _BLINK_FAST   100   // Network seen faster blink rate
+  #define _RQST_WAIT_TIME 30000 //Wait 30 seconds to allow user to push network button.
+  #define _RQST_ACK_DELAY 5000  // wait 5 second after requesting an ACK before using the PANID
+  #define _blinkTimer WHAT_Reusable_Timer1  //This will not be active while other CASEs are active.
+
+  #define Network_held WHAT_Reusable_Timer2   // IN multiple areas, this reusable timer is used for different purposes.
+  #define _WaitForResponses WHAT_Reusable_Timer2  //This will not be active while other CASEs are active.
+  #define _WHAT_NEW_CHILD_TIME_DELAY 30000 // Only stay in new child mode for 30 seconds if not accepted earlier.
+  #define _WHAT_Already_Linked WHAT_Reusable_8t_1  //used to debounce the network button.
+  //Serial.println("memberloop");
+
+  switch (WHAT_preemie_state)
+  {
+    // ************************************************************************
+    // This should be the predominant state.  Once a network is joined or created,
+    // This device will just watch for a few MAC messages.
+    case WHAT_PREEMIE_FINISHED:
+// TOC    Normal Adult operations 
+             // If no network activity is currently underway, monitor network button interactions.
+             //#define Network_held WHAT_Reusable_Timer2  //This will not be active while other CASEs are active.
+             #ifndef NETWORK_HELD_DELAY
+               #define NETWORK_HELD_DELAY 5000    // Time before network button is considered "HELD"
+             #endif
+             
+              if ((*_WHAT_network_button == HIGH) & (Network_held<millis()))
+              { 
+                // during normal operation, if the network button is held for several seconds
+                // this device will send a REQUEST_FULL_LINK message, and wait for a reply.
+                 #ifdef LINK_MONITOR
+                 Serial.println(F("Held"));
+                 #endif
+                 // Any digital inputs of the other device will control digital outputs of this device. 
+                 // First, be sure this device has an extra link spot available.
+                  f_REQUEST_FULL_LINK_03 = false;
+                  uint8_t _WHAT_Already_Linked = 0xFF;
+                  // Make sure there is an empty link location...
+                  for (uint8_t _i=0;_i<numWHATLinks;_i++)
+                  {
+                   #ifdef LINK_MONITOR
+                   Serial.println(WHATLinks[_i],HEX);
+                   #endif
+                    if((WHATLinks[_i] ==0xFFFF) & (_WHAT_Already_Linked==0xFF)) 
+                    {
+                      _WHAT_Already_Linked = _i;
+                    }
+                  }
+                  
+                 if(_WHAT_Already_Linked <0xFF)
+                 { // An empty slot was found for linking this device.
+                   #ifdef LINK_MONITOR
+                   Serial.println(F("Tx Rqst Link"));
+                   #endif
+                   Tx_REQUEST_FULL_LINK();  // Request linking across the network.
+                   *_WHAT_network_light = WHAT_LINKING_ON; //
+                   f_ACCEPT_FULL_LINK_03 = false;  // MAke sure previously set flag is cleared.     
+                   WHAT_preemie_state = WHAT_LINKING_INITIATED; // Return to normal if the connection is aborted.
+                  _WaitForResponses = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+                }// End if slot available
+              } // End if network button is NOT activated
+              else
+              { // Link button is being activated.
+                if(*_WHAT_network_button == LOW)
+                {
+                  Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer  
+                }    
+                // Just see how long it is held.
+              }
+              // *****************
+              // Trying to always turn the light off after some time, but this is conflicting with the flash timer.
+              if(_blinkTimer<millis())
+              { // Turn off the light every so often if nothing is active.
+                _blinkTimer = millis() + _RQST_WAIT_TIME;
+                *_WHAT_network_light = WHAT_NETWORK_NONE; // Turn the light off.
+              }
+        
+              // *****************
+              if(f_REQUEST_FULL_LINK_03)
+              { // Another device is requesting a link.
+                 f_REQUEST_FULL_LINK_03 = false; 
+                 _WHAT_Already_Linked = 0xFF; // Default to NOT available for link
+                 uint8_t _blankspot = 0xFF;
+                 // Link is being requested. If this is already linked, show solid light, if Not, blink light..
+                 for (uint8_t _i=0;_i<numWHATLinks;_i++)
+                 {
+                   #ifdef LINK_MONITOR
+                   Serial.println(WHATLinks[_i],HEX);
+                   #endif
+                   if((WHATLinks[_i] == _Offered_SourceAddress)) _WHAT_Already_Linked = _i; // This device was previously linked.
+                   if((_blankspot == 0xFF) & (WHATLinks[_i] == 0xFFFF)) _blankspot = _i; // Keep track fo teh first blank spot
+                 }
+                 if(_WHAT_Already_Linked == 0xFF) _WHAT_Already_Linked = _blankspot; // if not already linked, use the blank spot.
+                 // Now "_WHAT_Already_Linked" = either the location of previous link, an empty spot, or 0xFF if neither found,
+                 WHAT_preemie_state = WHAT_LINK_REQUESTED; // Indicate another device requests a link.
+                 _blinkTimer = millis() + _BLINK_FAST;
+                 _WaitForResponses = millis()+ _RQST_WAIT_TIME; // Reset the network held timer      
+               #ifdef LINK_MONITOR
+                Serial.print(F("_WHAT_Already_Linked value: "));Serial.println(_WHAT_Already_Linked);
+                Serial.print(F("WHATLinks[_i] value: "));Serial.println(WHATLinks[_WHAT_Already_Linked]);
+               #endif
+               }
+              break;
+              
+// ************************************************************************
+// TOC    Child requesting addition to network 
+    case WHAT_NEW_CHILD_REQ:
+              // A preemie is trying to join this network.
+              // This state is set whether this device proposed an address, or a NETWORK_ALERT_PREEMIE_03  MID was seen.
+              // If this is the case, if the network button on this device is pressed, notify the network and child that
+              // the operator is allowing it to join.
+              if (_blinkTimer <= millis())
+              {
+                _blinkTimer = millis() + _BLINK_FAST;
+                // Blink the network lights so the user knows to push a button.
+                *_WHAT_network_light = (*_WHAT_network_light== WHAT_CHILD_REQUEST_ON)? WHAT_CHILD_REQUEST_OFF:WHAT_CHILD_REQUEST_ON; // This is basically toggling green:  GREEN= !GREEN
+              }
+              if ((*_WHAT_network_button == HIGH)) // Button is active high.
+              {
+                //_last_NetworkButton = digitalRead(NETWORK_BUTTON);  // Debounce the input button.
+                //Serial.println(F("Allowing child"));
+                _WaitForResponses = millis() + _WHAT_NEW_CHILD_TIME_DELAY;  //This state will only remain active a short time.
+                // Send out a proposal for a child which includes Child Allowed.
+                Tx_PROPOSE_CHILD_NUMBER_05();
+                WHAT_preemie_state = WHAT_NEW_CHILD_ALLOWED;   // The operator pressed the button to accept the new child.
+                  #ifdef LINK_MONITOR
+                  //Serial.print(F("Recieve ACK from :0x")); Serial.println(_WHAT_Tx_Packet.pan_id);
+                  Serial.println(F("Button WHAT_NEW_CHILD_ALLOWED"));
+                  #endif
+                *_WHAT_network_light = WHAT_NEW_CHILD_ALLOWED_ON; // 
+              }
+              
+              if(f_Rx_NETWORK_ALLOW_PREEMIE_04)
+              {
+                // If this device is already a member of the network,
+                // send a proposal for a child address
+                f_Rx_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
+                _WaitForResponses = millis() + _WHAT_NEW_CHILD_TIME_DELAY;  //This state will only remain active a short time.
+                // Send out a proposal for a child
+                Tx_PROPOSE_CHILD_NUMBER_05();
+                // There are seperate state machines for preemies and members, each handle the NETWORK_ALLOW_PREEMIE_04 state, but in different state machines.
+                WHAT_preemie_state = WHAT_NEW_CHILD_ALLOWED;
+                  #ifdef LINK_MONITOR
+                    Serial.println(F("Rx WHAT_NEW_CHILD_ALLOWED"));
+                  #endif
+                *_WHAT_network_light = WHAT_NEW_CHILD_ALLOWED_ON; // 
+              }
+         // TOC    Network identified, waiting to be allowed
+              if (_WaitForResponses <= millis()) //Timer set when a child request is seen.  there is 30seconds to connect.
+              {
+                Serial.println(F("\n Allow timer expired"));
+                WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Reset to the "normal" state when the timer expires.
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                *_WHAT_network_light = WHAT_NETWORK_CREATED; //the child did not join, but this device's network is still active.
+              }
+              break;
+
+// ************************************************************************
+    case WHAT_NEW_CHILD_ALLOWED:
+// TOC    New child allowed to be added to network 
+              // The network has approved for the new child to be added.
+              //Serial.println(F("WHAT_NEW_CHILD_ALLOWED"));
+              
+              if (_WaitForResponses <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
+              {
+                WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Reset to the "normal" state when the timer expires.
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                 Serial.println(F("New Child Timeout"));
+                *_WHAT_network_light = WHAT_NETWORK_CREATED; //the child did not join, but this device's network is still active.
+              }
+              if(f_Rx_ACCEPT_PARENT_08)
+              {
+                // A new child has accepted this device as its parent.
+                // The required steps are handled in the receipt of the message, so this routine will never execute.
+                WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Reset to the "normal" state when the timer expires.
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                 Setup_WHAT_Show_Connection();
+                Serial.println(F("New Child Accepted"));
+                //Serial.println(F("Child accepted."));
+                //Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
+                //Serial.print(myPANID);Serial.print(myChildren[_myChild_available_Index].ChildAddress);Serial.print(myChildren[_myChild_available_Index].LatchKeyValue);Serial.println(myChildren[_myChild_available_Index].RelationshipType);
+                *_WHAT_network_light = WHAT_NETWORK_JOINED;
+              }
+              break;
+
+// ************************************************************************
+    case WHAT_LINKING_INITIATED:
+// TOC    This Device attempting to link to another device 
+              // This device requested a link.  wait for another device to accept the link.
+              // Blink Blue while waiting.
+              static bool _NetButtonWasReleased = false;  // 
+              if (_blinkTimer <= millis())
+              {
+                _blinkTimer = millis() + _BLINK_FAST;
+                // Blink the network lights so the user knows to push a button.
+                *_WHAT_network_light = (*_WHAT_network_light== WHAT_LINKING_ON)? WHAT_LINKING_OFF:WHAT_LINKING_ON; // This is basically toggling blue:  BLUE= !BLUE
+              }
+              if(_WaitForResponses < millis()) 
+              {
+                #ifdef LINK_MONITOR
+                Serial.println(F("Link to me -timeout-"));
+                #endif
+                Tx_REJECT_FULL_LINK_03();   // Let other devices know the link was rejected.
+                _NetButtonWasReleased = false; // reset the previous state once it was used.
+                WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // no response.  act like it never happened.  
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                *_WHAT_network_light = WHAT_NETWORK_ERROR; // Indicate link failed.
+              }
+              if((*_WHAT_network_button == LOW))
+              {// Linker aborted by pressing the link button again.
+                if(_NetButtonWasReleased == true) // the button is pressed in order to get to this routine.  require it be released.
+                {
+                  Tx_REJECT_FULL_LINK_03();
+                  _NetButtonWasReleased = false; // reset the previous state once it was used.
+                  WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // no response.  act like it never happened.  
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                  *_WHAT_network_light = WHAT_NETWORK_ERROR; // Indicate finished seeking link.
+                }
+              }
+              else
+              {
+               _NetButtonWasReleased = true; // Once the network button has been released, it can be used.
+              }
+              if(f_ACCEPT_FULL_LINK_03)
+              { // Link accepted.  
+                // Make sure the offered address is not already linked...
+                _WHAT_Already_Linked = 0xFF;
+                for (uint8_t _i=0;_i<numWHATLinks;_i++)
+                {
+                  if(WHATLinks[_i] == _Offered_SourceAddress) {_WHAT_Already_Linked = _i;_i=numWHATLinks;} // Match found.  no further search is necessary
+                }
+                if(_WHAT_Already_Linked == 0xFF)
+                { // This address was not already linked. Put it in the first available spot.
+                  for (uint8_t _i=0;_i<numWHATLinks;_i++)
+                  {
+                    if(WHATLinks[_i] == 0xFFFF)
+                    {
+                      WHATLinks[_i] = _Offered_SourceAddress;
+                      _WHAT_Already_Linked = _i;
+                      _i = numWHATLinks;
+                      }
+                  }
+                }
+                // if it was already in the list, no need to add it.
+               _NetButtonWasReleased = false; // reset the previous state once it was used.
+                WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Reset to the "normal" state when the timer expires.
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                *_WHAT_network_light = WHAT_LINKED; // Indicate success.
+                _WaitForResponses = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+                
+                #ifdef LINK_MONITOR
+                Serial.println(F("Link to me -Accepted-"));
+                Serial.print(F("List Location: "));Serial.println(_WHAT_Already_Linked);
+                Serial.print(F("WHATLinks[_i] value: 0x"));Serial.println(WHATLinks[_WHAT_Already_Linked],HEX);
+               #endif
+               }
+              break;
+// ************************************************************************
+    case WHAT_LINK_REQUESTED:
+// TOC    Another device is attempting to link to this device
+              //another device is requesting a link.  If the button on this is pressed, this will join.
+              // Before giving the chance, make sure this device is not already connected.
+              // *********
+              if((_WHAT_Already_Linked <= numWHATLinks) & (WHATLinks[_WHAT_Already_Linked] ==0xFFFF))
+              { // An empty link spot is available, and this device was not previously linked.
+                // Blink Blue while waiting.
+                if (_blinkTimer <= millis())
+                {
+                  _blinkTimer = millis() + _BLINK_FAST;
+                  // Blink the network lights so the user knows to push a button.
+                  *_WHAT_network_light = (*_WHAT_network_light== WHAT_LINKING_ON)? WHAT_LINKING_OFF:WHAT_LINKING_ON; // This is basically toggling blue:  BLUE= !BLUE
+                }
+                if(Network_held < millis()) 
+                {
+                   #ifdef LINK_MONITOR
+                    Serial.println(F("Linking timeout"));
+                   #endif
+                  // Transmit Link abandoned.
+                  Tx_REJECT_FULL_LINK_03();   // Let other devices know the link was rejected.
+                  WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // no response.  act like it never happened.  
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                 _WaitForResponses = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+                  *_WHAT_network_light = WHAT_LINKFAILED; // Link failed.
+                }
+                // respond to link is network button is pressed.
+                if ((*_WHAT_network_button == LOW))
+                { // Link accepted.  
+                #ifdef LINK_MONITOR
+                Serial.print(F("Link Accepted to : 0x"));Serial.println(_Offered_SourceAddress,HEX);
+                #endif
+                  WHATLinks[_WHAT_Already_Linked] = _Offered_SourceAddress;
+                  _EEPROM_store_links();  // Update the link list table with the new address.
+                  // Tx link Confirmation
+                  WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+                  _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+                  // In all cases, if a child address is being proposed, also inform the network that a preemie wants to join.
+                  // In addition to proposing a child, tell the entire network that a child is trying to join:
+                  _WHAT_Tx_Packet.pan_id = myPANID;
+                  _WHAT_Tx_Packet.destination = _Offered_SourceAddress;   // Send this to all devices.
+                  _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+                  uint8_t _index = 0;
+                  _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = highByte(ACCEPT_FULL_LINK_03);
+                  _WHAT_Tx_Packet.payload[_index++] = lowByte(ACCEPT_FULL_LINK_03);
+                   WHAT_TransmitPacket(_WHAT_Tx_Packet);
+        
+                  WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // no response.  act like it never happened.  
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                  Setup_WHAT_Show_Connection();
+                  *_WHAT_network_light = WHAT_LINKED; // Turn the link light green an indication of acceptance.
+                  _WaitForResponses = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+                }// End If network button pressed.
+              } // End Empty slot available.
+              else      // *********
+              {
+                if(WHATLinks[_WHAT_Already_Linked] <0xFFFF)
+                { // Link location holds a valid address (previously linked).  If the button is pressed, un-link.
+                  *_WHAT_network_light = WHAT_LINKING_ON; // Turn the link light solid blue to indicate already linked.
+                  if ((*_WHAT_network_button == HIGH)) // Button is active high.
+                  {
+                    #ifdef LINK_MONITOR
+                    Serial.print(F("Unlink :0x"));Serial.println(WHATLinks[_WHAT_Already_Linked]);
+                    #endif
+                    WHATLinks[_WHAT_Already_Linked] = 0xFFFF;
+                    _EEPROM_store_links();  // Update the link list table with the new address.
+                    WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+                    _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+                    // In all cases, if a link is being removed, also inform the other device that it should be removed from the link table.
+                    _WHAT_Tx_Packet.pan_id = myPANID;
+                    _WHAT_Tx_Packet.destination = _Offered_SourceAddress;   // Send this to the previously linked device.
+                    _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
+                    uint8_t _index = 0;
+                    _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+                    _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+                    _WHAT_Tx_Packet.payload[_index++] = highByte(REMOVE_FULL_LINK_03);
+                    _WHAT_Tx_Packet.payload[_index++] = lowByte(REMOVE_FULL_LINK_03);
+                     WHAT_TransmitPacket(_WHAT_Tx_Packet);
+          
+                    WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Leave Preemie state.  
+                     Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                   *_WHAT_network_light = WHAT_LINKING_OFF; // Turn the link light back off.
+                    _WaitForResponses = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+                  } // end button being pressed (Accepted link)
+                }// end If already linked.
+                else
+                // *********
+                { // Not already linked and no room for an additional link.
+                  // ignore the link request
+                  #ifdef LINK_MONITOR
+                  Serial.println(F("No Available Link Spots"));
+                  #endif
+                  WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // no free address.  act like it never happened.  
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+                 *_WHAT_network_light = WHAT_LINKFAILED; // Turn the link light back off, since it can not be linked.
+                  _WaitForResponses = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+                } // End Else no link, no room
+              }// End else no empty slot 
+              break;
+             
+    default:
+              // other checks:
+       break;
+  }// End Switch
+      
+  //Look for other messages of interest:
+  if(f_Rx_REQUEST_JOIN_NETWORK_03)
+  {
+    f_Rx_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
+    // Send Network Alert.
+    WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+    _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+    // In all cases, if a child address is being proposed, also inform the network that a preemie wants to join.
+    // In addition to proposing a child, tell the entire network that a child is trying to join:
+    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+    _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+    uint8_t _index = 0;
+    _WHAT_Tx_Packet.payload[_index++] = 5; //Total payload length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 4; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALERT_PREEMIE_03);
+    _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALERT_PREEMIE_03);
+     WHAT_TransmitPacket(_WHAT_Tx_Packet);
+     
+    WHAT_preemie_state = WHAT_NEW_CHILD_REQ;  // Let this device know a preemie is trying to join.
+    *_WHAT_network_light = WHAT_CHILD_REQUEST_ON; // 
+    _blinkTimer = millis() + _BLINK_FAST;
+    _WaitForResponses = millis() + _RQST_WAIT_TIME;
+    //Serial.println(F("Rx_REQUEST_JOIN_NETWORK_03"));
+    
+   }// end if my proposed address is valid.
+
+   if(f_Rx_NETWORK_ALERT_PREEMIE_03)
+   {
+      f_Rx_NETWORK_ALERT_PREEMIE_03 = false; // clear the message flag when it is used.
+      // The network has given an alert that a preemie is trying to join the network.
+      // During that time, if this device address is <0x0100 it will monitor its network button
+      // and send an acceptance signal if it is pressed.
+      //Serial.println(F("Rx_NETWORK_ALERT_PREEMIE_03"));
+      //WHAT_network_seen = true;
+      _WaitForResponses = millis() + _RQST_WAIT_TIME; // Once a network is seen, slow the rate of requests.
+      WHAT_preemie_state = WHAT_NEW_CHILD_REQ;
+      *_WHAT_network_light = WHAT_NETWORK_CREATING_ON;
+   }
+  if(f_Rx_CHOOSE_NETWORK_05)
+  {// When a preemie chooses a network, if it is not THIS network, revert to finished state.
+      //Serial.println(F("Rx_CHOOSE_NETWORK_05"));
+    f_Rx_CHOOSE_NETWORK_05 = false; // clear the message flag when it is used.
+    if (_Offered_PANID != myPANID) //Only respond if mature and if the given PANID does not match this one.
+      {
+          WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Return to normal if a different PANID is used.
+                 Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+      }
+  }
+   if(f_Rx_NETWORK_JOIN_COMPLETE_03)
+   {
+      //Serial.println(F("Rx_NETWORK_JOIN_COMPLETE_03"));
+     f_Rx_NETWORK_JOIN_COMPLETE_03 = false; // clear the message flag when it is used.
+     WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Return to normal if the connection is aborted.
+     Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+     *_WHAT_network_light = WHAT_NETWORK_CREATED;
+     //Setup_WHAT_Show_Connection();
+   }
+    // If an abort message is recieved, return to the beginning.
+    if(f_Rx_NETWORK_JOIN_ABORT_03) 
+    {
+        //Serial.println(F("Rx_NETWORK_JOIN_ABORT_03"));
+      f_Rx_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
+      WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Return to normal if the connection is aborted.
+     Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+      *_WHAT_network_light = WHAT_NETWORK_NONE;
+    }
+} // End Loop monitor
+
+ // *****************
+// TOC Individual Recieve messages
+void Rx_NETWORK_ALERT_PREEMIE_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  //Serial.println(F("Rx_NETWORK_ALERT_PREEMIE_03"));
+  f_Rx_NETWORK_ALERT_PREEMIE_03 = true;   // Notice from another device that a preemie is trying to join
+  gbl_preemie_alert_seen = true;
+  gbl_preemie_alert_expire = millis() + PREEMIE_ALERT_HOLD_MS;
+}
+
+// ***************** 
+// TOC Individual Recieve messages
+void Rx_NETWORK_ALLOW_PREEMIE_04(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{ // This will change the preemee state to WHAT_PRE_NETWORK_ALLOW_PREEMIE_04
+  //Serial.print(F("Rx_NETWORK_ALLOW_PREEMIE_04: PANID:0x"));Serial.println(_WHAT_Rx_Packet.pan_id,HEX);
+// Rx Message flags
+  if(gbl_preemie_alert_seen && (gbl_preemie_alert_expire > millis()))
+  {
+    f_Rx_NETWORK_ALLOW_PREEMIE_04 = true;   // Notice to this preemie that it may accept its parent.
+    _Offered_PANID = _WHAT_Rx_Packet.pan_id;
+    myPANID = _WHAT_Rx_Packet.pan_id; // Make the panID of the accepting network into my own.
+    Mrf24j_set_pan(myPANID);          // Set the PANID to the offered network to filter messages once allowed to join.
+    _WaitForResponses = millis() + _RQST_ACK_DELAY;
+  }
+  else
+  {
+    f_Rx_NETWORK_ALLOW_PREEMIE_04 = false; // ignore stray allow without prior alert
+  }
+}
+
+// *****************
+// TOC Individual Recieve messages
+void Rx_CHOOSE_NETWORK_05(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  f_Rx_CHOOSE_NETWORK_05  = true;         // Notice to other networks that a network has accepted this preemie
+  _Offered_PANID = _WHAT_Rx_Packet.payload[_index + 3] * 0x100 + _WHAT_Rx_Packet.payload[_index + 4];
+  *_WHAT_network_light = WHAT_NETWORK_NONE; // return to normal light operation.
+}
+
+// *****************
+// TOC Individual Recieve messages
+// WHAT_Reusable_Message1
+void Rx_PROPOSE_CHILD_NUMBER_05(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{ //This device received a proposed child address.
+  // If this device has been accepted to a network, keep the lowest numbered proposal.
+  f_Rx_PROPOSE_CHILD_NUMBER_05 = true;    // Preemie asking the network for a child number
+  //Serial.println(F("Rx_PROPOSE_CHILD_NUMBER_05"));
+    if (((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 4])) < _Offered_SourceAddress)
+    { // Keep the lowest offered child address.
+      //_Offered_PANID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
+      _Offered_SourceAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+      //_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
+      _Offered_Parent = WHAT_Rx_Packet.sourceaddress;
+      *_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_CREATING_ON)? WHAT_NETWORK_CREATING_OFF:WHAT_NETWORK_CREATING_ON; //   // This will toggle for each parent offering an address.
+      //Serial.print(F("New offered ID: 0x")); Serial.println(_Offered_SourceAddress);
+    }
+}
+// *****************
+// TOC Individual Recieve messages
+void Rx_NETWORK_JOIN_COMPLETE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  //Serial.println(F("Rx_Network    Join Complete"));
+// Rx Message flags
+  f_Rx_NETWORK_JOIN_COMPLETE_03 = true;   // Preeemie accepted a proposed parent 
+}
+
+// *****************
+// TOC Individual Recieve messages
+void Rx_ACCEPT_PARENT_08(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  if(WHAT_preemie_state == WHAT_NEW_CHILD_ALLOWED)
+  { // This state is ONLY valid if THIS device has already offered a child address.         
+    //#define ACCEPT_PARENT_08         0xF006 // 1 byte length, 2 byte command, 2 byte parent, 2 byte latchkey, 1 byte relation type // preemie accepts offer from parent, and confirms latchkey and security key
+       
+      if((_Offered_SourceAddress == _WHAT_Rx_Packet.sourceaddress) & (mySourceAddress == _WHAT_Rx_Packet.destination))
+      { // the desired address matches.  this device will be added as a child.
+        f_Rx_ACCEPT_PARENT_08 = true;       // While a new network is forming, requests existing network to claim its PANID
+        uint8_t _myChild_available_Index = 0;
+        // Locate the desired address slot.
+
+        // Verify the child address matches an open child slot:
+        //The algorithn is a little confusing.  Offered child addresses use the address of this device with the child index as the next higher nibble.
+        // This requires pulling out the address of THIS device (Parent), and rotating the recieved address so only the index remains.
+        // This can be done with rotation.
+        //    So "If mySourceAddress == 0x0000, then myChildIndex must not move (meaning the proposed address is 0x000C) (where C is the child index)
+        //       "If mySourceAddress >0x0000, then myChildIndex must move right 1 nibble (rotate right 4 times)(meaning the proposed address is 0x00Cp) (where C is the child index, and p is the parent address)
+        //       "If mySourceAddress >0x000F, then myChildIndex must move left 2 nibbles (rotate right 8 times)(meaning the proposed address is 0x0C0p) (where C is the child index, and p is the parent address)
+        //       "If mySourceAddress >0x00FF, then myChildIndex must move left 3 nibbles (rotate right 12 times)(meaning the proposed address is 0xC00p) (where C is the child index, and p is the parent address)
+        // At the end of this process, rotate the recieved source address to the least significant nibble location.
+        _myChild_available_Index = _WHAT_Rx_Packet.sourceaddress >> ( ((mySourceAddress > 0x0) * 4) + ((mySourceAddress > 0x0F) * 4) + ((mySourceAddress > 0x0FF) * 4) );
+        
+        //and make sure that index does not already have a child in it, then fill it with this child.... 
+        if(myChildren[_myChild_available_Index].ChildAddress == 0xFFFF)
+        {
+          myChildren[_myChild_available_Index].ChildAddress = _WHAT_Rx_Packet.sourceaddress;
+          myChildren[_myChild_available_Index].LatchKeyValue = ((_WHAT_Rx_Packet.payload[_index+4]*0x100) +_WHAT_Rx_Packet.payload[_index+5]);
+          myChildren[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+6];
+          Serial.print(F("Child accepted.  Index:"));Serial.println(_myChild_available_Index);
+          Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
+          Serial.print(myPANID,HEX);Serial.print(F("\t"));Serial.print(myChildren[_myChild_available_Index].ChildAddress,HEX);Serial.print(F("\t"));Serial.print(myChildren[_myChild_available_Index].LatchKeyValue,HEX);Serial.print(F("\t"));Serial.println(myChildren[_myChild_available_Index].RelationshipType,HEX);
+        }
+        else
+        {
+          //Serial.println(F("Child slot was taken..."));
+        }
+      }
+
+    WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Return to normal operating state.
+     Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+    WHAT_StoreEEPROM();
+    Setup_WHAT_Show_Connection();
+    *_WHAT_network_light = WHAT_NETWORK_NONE; // return to normal light operation.
+  }
+}
+
+// *****************
+// TOC Individual Transmit messages
+void Tx_PROPOSE_CHILD_NUMBER_05 (void)
+{
+  WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+  _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+  // In addition to proposing a child, tell the entire network that a child is trying to join:
+  _WHAT_Tx_Packet.pan_id = myPANID;
+  _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+  _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+  uint8_t _index = 0;
+  _WHAT_Tx_Packet.payload[_index++] = 5; //Total payload length (including this byte)
+  _WHAT_Tx_Packet.payload[_index++] = 4; //MID length (including this byte)
+  _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALLOW_PREEMIE_04);
+  _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALLOW_PREEMIE_04);
+  _WHAT_Tx_Packet.payload[_index++] = 0x01;  // Confirm is part of the allow network. (deny to be added elsewhere)
+  WHAT_preemie_state = WHAT_NEW_CHILD_REQ; // Change the mode of this device to look for a joining device.
+
+  // further MID will not be sent if this device does not have any available child slots.
+  uint8_t _myChild_available_Index = 0;
+  uint8_t _i = 1;
+  while((_i < 16) & (_myChild_available_Index ==0))
+  {
+    // Check each index. If the source address is available (0xFFFF), capture that index, and stop the loop.
+    if( myChildren[_i].ChildAddress < 0xFFFF) {_i++;}else{_myChild_available_Index = _i;}
+    //Serial.print("Address/_i");Serial.print(myChildren[_i].ChildAddress);Serial.println(_i);
+  }
+  
+  if ((_myChild_available_Index >0) & (_myChild_available_Index < 16)) //if the index is 16, then no slots available.  Address 0 is indistinguishable from parent, and is not allowed.
+  {
+    // Child slot is available.
+
+    // Create a proposed child address.  This will be the lowest available address.
+    //The child address will be in the next higher nibble of the parent's address.
+    //Each generation (above the master) will use the next higher nibble, and the open child index.
+    //Also note that only 4 generations will fit in a 2 byte number.
+
+    //The algorithn is a little confusing, but if mySourceAddress < 0xF, then the child index must be rotated 1 nibble to the left.
+    // This could be done with rotation, but multiplying by 0x0010 serves the same purpose.
+    //    So "If mySourceAddress == 0x0000, then myChildIndex must not move (making the proposed address 0x000C) (where C is the child index)
+    //       "If mySourceAddress >0x0000, then myChildIndex must move left 1 nibble (rotate left 4 times)(making the proposed address 0x00C0) (where C is the child index)
+    //       "If mySourceAddress >0x000F, then myChildIndex must move left 2 nibbles (rotate left 8 times)(making the proposed address 0x0C00) (where C is the child index)
+    //       "If mySourceAddress >0x00FF, then myChildIndex must move left 3 nibbles (rotate left 12 times)(making the proposed address 0xC000) (where C is the child index)
+    //        At the end of this process, mySourceAddress is logic ORed with myChildIndex becoming the _proposed_child_address.
+    //        ** device addresses above 0x3FFF are not allowed.  If this index results in a larger number, it will not offer an address.
+    _Offered_SourceAddress = (_myChild_available_Index) << ( ((mySourceAddress > 0x0) * 4) + ((mySourceAddress > 0x0F) * 4) + ((mySourceAddress > 0x0FF) * 4) );
+    //Serial.print("Calc child address "); Serial.println(_proposed_child_address,HEX);
+    _Offered_SourceAddress |= mySourceAddress; // This incorporates the parent address into the child's address.
+    // *******  NOTE:  This _Offered_SourceAddress is checked when recieving ACCEPT_PARENT_08 *********** // 
+    //Serial.print("mySource"); Serial.println(mySourceAddress,HEX);
+    //Serial.print("_proposed_child_address:0x"); Serial.println(_proposed_child_address,HEX);
+
+    if (_Offered_SourceAddress < 0x4FFF)
+    {
+      // A valid child address is available.
+      _WHAT_Tx_Packet.payload[0] = 10; //Change this to include the length of the proposed child address.
+      _WHAT_Tx_Packet.payload[_index++] = 5;   //MID size (for the 2nd message).
+      _WHAT_Tx_Packet.payload[_index++] = highByte(PROPOSE_CHILD_NUMBER_05);// 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(PROPOSE_CHILD_NUMBER_05); //in order to support multibyte MIDs, put the high byte first.
+      _WHAT_Tx_Packet.payload[_index++] = highByte(_Offered_SourceAddress);//in order to support multibyte MIDs, put the high byte first.
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(_Offered_SourceAddress);
+      //Serial.print(F("Tx Propose child address @")); Serial.println(_Offered_SourceAddress,HEX);
+      WHATRxMessage[WHAT_Reusable_Message1].MessageID = ACCEPT_PARENT_08;  // these are prospective parents offering free addresses.
+      WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_ACCEPT_PARENT_08; // Message callback set here to collect the responses
+    }//End if my address proposal will be vaild.
+  }// End If I have an available child slot
+  WHAT_TransmitPacket(_WHAT_Tx_Packet);
+}
+
+// *****************
+// TOC Individual Recieve messages
+void Rx_ABANDON_CHILD_05 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{  // One of this device's children is leaving it.
+   // Clear the child information from the index.
+   // Moving all the other children would also require giving them new addresses, which 
+   // is unnecessary, so this slot will remain open.  New devices can re-use this address.
+   uint8_t _i=0;
+   while (_i<=ChildMaxIndex)
+   {
+      if(_WHAT_Rx_Packet.sourceaddress == myChildren[_i].ChildAddress)
+      { // the child has been found.  Before blanking, make sure it really was this child by checking the latchkey value.
+        if(((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]) == myChildren[_i].LatchKeyValue)
+        { // This is the child.  Remove it from the index.
+            myChildren[_i].ChildAddress = 0xFFFF;
+            myChildren[_i].LatchKeyValue = 0xFFFF;
+            myChildren[_i].RelationshipType = 0;
+            myChildren[_i].Security = 0xFFFF;
+        }//End Child removed
+        else
+        {// Security breach... incorrect latchkey value.  Note the security breach (not yet implimented)
+          WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+          _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+          _WHAT_Tx_Packet.pan_id = myPANID;
+          _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+          _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+          uint8_t _index = 0;
+          _WHAT_Tx_Packet.payload[_index++] = 5; //Total payload length (including this byte)
+          _WHAT_Tx_Packet.payload[_index++] = 4; //MID length (including this byte)
+          _WHAT_Tx_Packet.payload[_index++] = highByte(Security_Breach_04);
+          _WHAT_Tx_Packet.payload[_index++] = lowByte(Security_Breach_04);
+          _WHAT_Tx_Packet.payload[_index++] = SB_BUMP;  //(bump)   A parent sees a request to abandon child, but the latchkey value is incorrect.
+              WHAT_TransmitPacket(_WHAT_Tx_Packet);
+        }// End security breach
+       _i = ChildMaxIndex + 1;   // discontinue the search once the child is found by making the index greater than the highest index.
+      }// End if child match found.
+    _i++; //Check the next entry.
+   }// End while looking for child entry.
+}
+
+// *****************
+// TOC Individual Transmit messages
+void Tx_REQUEST_FULL_LINK(void)
+{
+   #ifdef LINK_MONITOR
+  Serial.println(F("Tx REQUEST_FULL_LINK"));
+   #endif
+    WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+    _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+    _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+    uint8_t _index = 0;
+    _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_FULL_LINK_03);
+    _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_FULL_LINK_03);
+        WHAT_TransmitPacket(_WHAT_Tx_Packet);
+}
+
+// *****************
+// TOC Individual Transmit messages
+void Tx_REJECT_FULL_LINK_03 (void)
+{   
+   #ifdef LINK_MONITOR
+  Serial.println(F("Tx REJECT_FULL_LINK"));
+   #endif
+    WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+    _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+    _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+    uint8_t _index = 0;
+    _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = highByte(REJECT_FULL_LINK_03);
+    _WHAT_Tx_Packet.payload[_index++] = lowByte(REJECT_FULL_LINK_03);
+        WHAT_TransmitPacket(_WHAT_Tx_Packet);
+}
+
+// *****************
+// TOC Individual Transmit messages
+void Tx_REPLY_ACKNOWLEDGE_03 (void)
+{   
+    WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+    _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+    _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
+    uint8_t _index = 0;
+    _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = highByte(REPLY_ACKNOWLEDGE_03);
+    _WHAT_Tx_Packet.payload[_index++] = lowByte(REPLY_ACKNOWLEDGE_03);
+        WHAT_TransmitPacket(_WHAT_Tx_Packet);
+}
+
+// *****************
+// TOC Individual Recieve messages
+void  Rx_REQUEST_FULL_LINK_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
+  f_REQUEST_FULL_LINK_03 = true;
+   #ifdef LINK_MONITOR
+  Serial.println(F("Rx Rqst Link"));
+   #endif
+}
+
+// *****************
+// TOC Individual Recieve messages
+void  Rx_ACCEPT_FULL_LINK_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
+  f_ACCEPT_FULL_LINK_03 = true;
+   #ifdef LINK_MONITOR
+  Serial.println(F("Rx Accept Link"));
+   #endif
+}
+
+// *****************
+// TOC Individual Recieve messages
+void Rx_REJECT_FULL_LINK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{  // A link was requested, but there are not any link location available.
+   // Leave the link mode.
+   WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Return to normal operating state.
+      Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+  *_WHAT_network_light = WHAT_NETWORK_NONE;  //
+   #ifdef LINK_MONITOR
+   Serial.println(F("Rx REJECT_FULL_LINK"));
+   #endif
+}
+
+// *****************
+// TOC Individual Recieve messages
+void Rx_REMOVE_FULL_LINK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{ // An already linked device indicated it wanted to be un-linked.
+  // locate that device in the link list and set its address to "Available"
+  
+    for(uint8_t _i=0;_i<numWHATLinks;_i++)
+  {
+    if(WHATLinks[_i]==_WHAT_Rx_Packet.sourceaddress)
+    {
+      WHATLinks[_i]=0xFFFF;
+    }
+  }
+  // Turn off the light and leave Link Mode.
+  *_WHAT_network_light = WHAT_NETWORK_NONE;  //
+  WHAT_preemie_state = WHAT_PREEMIE_FINISHED; // Return to normal operating state.
+     Network_held = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+   #ifdef LINK_MONITOR
+   Serial.println(F("Rx REMOVE_FULL_LINK"));
+   #endif
+}
+
+void Setup_WHAT_Show_Connection(void)
+{
+  // This is just an indication that the connection is complete.
+  //Serial.print("Connected.   PANID:0x");Serial.println(myPANID,HEX);
+  //Serial.print("           Address:0x");Serial.println(mySourceAddress,HEX);
+  //Serial.print("            Parent:0x");Serial.println(myParentAddress,HEX);
+  //Serial.print("          LatchKey:0x");Serial.println(myLatchKeyNumber,HEX);
+  
+
+}
+
+
+
+#endif  // If auto-addressing is defined.
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+// vvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvvv
+//*_WHAT_network_light = WHAT_NETWORK_NONE;  //
+//*_WHAT_network_light = WHAT_NETWORK_RED_ON; //
+//*_WHAT_network_light = WHAT_NETWORK_GREEN_ON;  //
+//*_WHAT_network_light = WHAT_NETWORK_BLUE_ON; //
+//*_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_RED_ON)? WHAT_NETWORK_RED_OFF:WHAT_NETWORK_BLUE_ON; // This is basically toggling red:  RED= !RED // 
+//*_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_GREEN_ON)? WHAT_NETWORK_GREEN_OFF:WHAT_NETWORK_BLUE_ON; // This is basically toggling green:  GREEN= !GREEN // 
+//*_WHAT_network_light = (*_WHAT_network_light== WHAT_NETWORK_BLUE_ON)? WHAT_NETWORK_BLUE_OFF:WHAT_NETWORK_BLUE_ON; // This is basically toggling blue:  BLUE= !BLUE // 
