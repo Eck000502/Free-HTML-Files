@@ -228,13 +228,13 @@ bool WHAT_Buffer_RX( WHAT_Packet & _ptr_requested_msg, uint8_t _this_index)
   /*
     This section handles the call of this routine by a consumer of the data.
     The consumer sends a "WHAT_Packet" pointer and _this_index.
-    IF _this_index is different than GBL_rx_index, this section fills WHAT_Packet with WHAT_Rx_Message[_this_index] 
+    IF _this_index is different than gblRadio.rxIndex, this section fills WHAT_Packet with WHAT_Rx_Message[_this_index] 
     recieved buffer message, and returns TRUE. otherwise it returns false and does not modify WHAT_Packet
     It is up to the consumer to verify which messages they have already consumed.
   */
-    if(GBL_rx_index != _this_index) {
+    if(gblRadio.rxIndex != _this_index) {
         // FIX: Dereference pointer to copy actual structure data back to caller
-        _ptr_requested_msg = WHAT_Buff_Message[_this_index]; 
+        _ptr_requested_msg = gblRadio.rxBuffer[_this_index]; 
         return true;
     } 
     else
@@ -252,23 +252,23 @@ void RawMessageBuffer(void)
     if (Mrf24j_Read(MRF24J_INTSTAT) & MASK_RXIF ) 
     {
       // #ifdef DX_ONLY
-      //     Serial.print("GBL_rx_index: ");Serial.println(GBL_rx_index);
+      //     Serial.print("gblRadio.rxIndex: ");Serial.println(gblRadio.rxIndex);
       //     Serial.print("_this_index: ");Serial.println(_this_index);
       // #endif
         // Read header
-        WHAT_Buff_Message[GBL_rx_index].frame_length = Mrf24j_Read(MRF24J_RxNFrameLength);
-        WHAT_Buff_Message[GBL_rx_index].frame_control = Mrf24j_Read(MRF24J_RxNFrmCntrl) + (Mrf24j_Read(MRF24J_RxNFrmCntrl2) * 0x100);
-        WHAT_Buff_Message[GBL_rx_index].pan_id = Mrf24j_Read(MRF24J_RxN_PANIDL) + Mrf24j_Read(MRF24J_RxN_PANIDH) * 0x100;
-        WHAT_Buff_Message[GBL_rx_index].destination = Mrf24j_Read(MRF24J_RxN_DESTL) + Mrf24j_Read(MRF24J_RxN_DESTH) * 0x100;
-        WHAT_Buff_Message[GBL_rx_index].sourceaddress = Mrf24j_Read(MRF24J_RxN_SOURCEL) + Mrf24j_Read(MRF24J_RxN_SOURCEH) * 0x100;
+        gblRadio.rxBuffer[gblRadio.rxIndex].frame_length = Mrf24j_Read(MRF24J_RxNFrameLength);
+        gblRadio.rxBuffer[gblRadio.rxIndex].frame_control = Mrf24j_Read(MRF24J_RxNFrmCntrl) + (Mrf24j_Read(MRF24J_RxNFrmCntrl2) * 0x100);
+        gblRadio.rxBuffer[gblRadio.rxIndex].pan_id = Mrf24j_Read(MRF24J_RxN_PANIDL) + Mrf24j_Read(MRF24J_RxN_PANIDH) * 0x100;
+        gblRadio.rxBuffer[gblRadio.rxIndex].destination = Mrf24j_Read(MRF24J_RxN_DESTL) + Mrf24j_Read(MRF24J_RxN_DESTH) * 0x100;
+        gblRadio.rxBuffer[gblRadio.rxIndex].sourceaddress = Mrf24j_Read(MRF24J_RxN_SOURCEL) + Mrf24j_Read(MRF24J_RxN_SOURCEH) * 0x100;
 
         // #ifdef DX_ONLY
         // Serial.println(F("Length\tCONTROL\tRx pan_id\tdestination\tsource"));
-        // Serial.print(WHAT_Buff_Message[GBL_rx_index].frame_length,DEC);Serial.print("\t  ");
-        // Serial.print(WHAT_Buff_Message[GBL_rx_index].frame_control,HEX);Serial.print("\t  ");
-        // Serial.print(WHAT_Buff_Message[GBL_rx_index].pan_id,HEX);Serial.print("\t\t  ");
-        // Serial.print(WHAT_Buff_Message[GBL_rx_index].destination,HEX);Serial.print("\t  ");
-        // Serial.println(WHAT_Buff_Message[GBL_rx_index].sourceaddress,HEX);
+        // Serial.print(gblRadio.rxBuffer[gblRadio.rxIndex].frame_length,DEC);Serial.print("\t  ");
+        // Serial.print(gblRadio.rxBuffer[gblRadio.rxIndex].frame_control,HEX);Serial.print("\t  ");
+        // Serial.print(gblRadio.rxBuffer[gblRadio.rxIndex].pan_id,HEX);Serial.print("\t\t  ");
+        // Serial.print(gblRadio.rxBuffer[gblRadio.rxIndex].destination,HEX);Serial.print("\t  ");
+        // Serial.println(gblRadio.rxBuffer[gblRadio.rxIndex].sourceaddress,HEX);
         // #endif
     
     // read the payload
@@ -284,26 +284,26 @@ void RawMessageBuffer(void)
         }
 
         for (uint8_t _i = 0; _i <= _payloadSize; _i++) {
-            WHAT_Buff_Message[GBL_rx_index].payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
+            gblRadio.rxBuffer[gblRadio.rxIndex].payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
          }
 
-        WHAT_Buff_Message[GBL_rx_index].lqi = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _payloadSize + 3);
-        WHAT_Buff_Message[GBL_rx_index].rssi = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _payloadSize + 4);
+        gblRadio.rxBuffer[gblRadio.rxIndex].lqi = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _payloadSize + 3);
+        gblRadio.rxBuffer[gblRadio.rxIndex].rssi = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _payloadSize + 4);
 
     // Extra bytes are added to the FIFO.
       // #ifdef DX_ONLY
       //   Serial.print("FCS: ");Serial.print(Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _payloadSize+2),HEX);Serial.print(Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _payloadSize+1),HEX);
-      //    Serial.print("\tlqi: ");Serial.print(WHAT_Buff_Message[GBL_rx_index].lqi,HEX);
-      //   Serial.print("\trssi: ");Serial.println(WHAT_Buff_Message[GBL_rx_index].rssi,HEX);
+      //    Serial.print("\tlqi: ");Serial.print(gblRadio.rxBuffer[gblRadio.rxIndex].lqi,HEX);
+      //   Serial.print("\trssi: ");Serial.println(gblRadio.rxBuffer[gblRadio.rxIndex].rssi,HEX);
       //   Serial.print("\n");
       // #endif
  
-       GBL_rx_index++;
-        //Serial.print("GBL_rx_index: ");Serial.println(GBL_rx_index);
+       gblRadio.rxIndex++;
+        //Serial.print("gblRadio.rxIndex: ");Serial.println(gblRadio.rxIndex);
         // FIX: Enforce proper zero-indexed circular buffer bounds
-        if(GBL_rx_index >= RX_BUFFER_DEPTH )
+        if(gblRadio.rxIndex >= RX_BUFFER_DEPTH )
         { 
-            GBL_rx_index = 0; 
+            gblRadio.rxIndex = 0; 
         }
     }
     else 
@@ -319,29 +319,29 @@ void RawMessageBuffer(void)
 // TOC Transmit Message from buffer
 void Tx_What_Que(void)  // If more that one message is being send, this will send the next message once the previous message is gone.
 { // Checks to see if a message is waiting to be placed in the transmit queue
-    //Serial.print(F("Pend/send "));Serial.print(TxQueue_PendIndex);Serial.println(" / ");Serial.print(TxQueue_SentIndex);
+    //Serial.print(F("Pend/send "));Serial.print(gblQueues.txPendIndex);Serial.println(" / ");Serial.print(gblQueues.txSentIndex);
 
-  if(TxQueue_PendIndex != TxQueue_SentIndex)
+  if(gblQueues.txPendIndex != gblQueues.txSentIndex)
   {
     if(!(Mrf24j_Read(MRF24J_TXNCON)& MRF24J_TXNTRIG))  // If the transmit bit has cleared...
     {
       // Header length is primarily derermined from the Frame Control, which
       // decides if PANID, SOURCE,and DESTINATION are included in the header.
-      TxQueue[TxQueue_SentIndex].frame_length = TxQueue[TxQueue_SentIndex].header_length + TxQueue[TxQueue_SentIndex].payload[0];
-      Mrf24j_Write(MRF24J_TxNFrameLength, TxQueue[TxQueue_SentIndex].frame_length);
-      Mrf24j_Write(MRF24J_TxNHeadLength, TxQueue[TxQueue_SentIndex].header_length);
-      Mrf24j_Write(MRF24J_TxNFrmCntrl, lowByte(TxQueue[TxQueue_SentIndex].frame_control));
-      Mrf24j_Write(MRF24J_TxNFrmCntrl2, highByte(TxQueue[TxQueue_SentIndex].frame_control));
-      Mrf24j_Write(MRF24J_TxNSeq, TxQueue[TxQueue_SentIndex].sequence_number);
+      gblQueues.tx[gblQueues.txSentIndex].frame_length = gblQueues.tx[gblQueues.txSentIndex].header_length + gblQueues.tx[gblQueues.txSentIndex].payload[0];
+      Mrf24j_Write(MRF24J_TxNFrameLength, gblQueues.tx[gblQueues.txSentIndex].frame_length);
+      Mrf24j_Write(MRF24J_TxNHeadLength, gblQueues.tx[gblQueues.txSentIndex].header_length);
+      Mrf24j_Write(MRF24J_TxNFrmCntrl, lowByte(gblQueues.tx[gblQueues.txSentIndex].frame_control));
+      Mrf24j_Write(MRF24J_TxNFrmCntrl2, highByte(gblQueues.tx[gblQueues.txSentIndex].frame_control));
+      Mrf24j_Write(MRF24J_TxNSeq, gblQueues.tx[gblQueues.txSentIndex].sequence_number);
       //Mrf24j_Write(MRF24J_TxNFrmCntrl, 0b01100001);
       //Mrf24j_Write(MRF24J_TxNFrmCntrl2, 0b10001000);
       //Mrf24j_Write(MRF24J_TxNSeq, 1);
-      Mrf24j_Write(MRF24J_TxN_PANIDL, lowByte(TxQueue[TxQueue_SentIndex].pan_id));
-      Mrf24j_Write(MRF24J_TxN_PANIDH, highByte(TxQueue[TxQueue_SentIndex].pan_id));
-      Mrf24j_Write(MRF24J_TxN_DESTL, lowByte(TxQueue[TxQueue_SentIndex].destination));
-      Mrf24j_Write(MRF24J_TxN_DESTH, highByte(TxQueue[TxQueue_SentIndex].destination));
-      Mrf24j_Write(MRF24J_TxN_SOURCEL, lowByte(TxQueue[TxQueue_SentIndex].sourceaddress));
-      Mrf24j_Write(MRF24J_TxN_SOURCEH, highByte(TxQueue[TxQueue_SentIndex].sourceaddress));
+      Mrf24j_Write(MRF24J_TxN_PANIDL, lowByte(gblQueues.tx[gblQueues.txSentIndex].pan_id));
+      Mrf24j_Write(MRF24J_TxN_PANIDH, highByte(gblQueues.tx[gblQueues.txSentIndex].pan_id));
+      Mrf24j_Write(MRF24J_TxN_DESTL, lowByte(gblQueues.tx[gblQueues.txSentIndex].destination));
+      Mrf24j_Write(MRF24J_TxN_DESTH, highByte(gblQueues.tx[gblQueues.txSentIndex].destination));
+      Mrf24j_Write(MRF24J_TxN_SOURCEL, lowByte(gblQueues.tx[gblQueues.txSentIndex].sourceaddress));
+      Mrf24j_Write(MRF24J_TxN_SOURCEH, highByte(gblQueues.tx[gblQueues.txSentIndex].sourceaddress));
     
       /*
         Serial.print("Header Length (TX Buf 0): ");Serial.println(Mrf24j_Read(MRF24J_TxNHeadLength),HEX);
@@ -357,27 +357,27 @@ void Tx_What_Que(void)  // If more that one message is being send, this will sen
     
     
         Serial.print("\n");
-        Serial.print("Header Length (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].header_length,HEX);
-        Serial.print("\tPacket Length (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].frame_length,HEX);
-        Serial.print("\tFrame Control (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].frame_control,HEX);
-        Serial.print("\tDestination (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].destination,HEX);
-        Serial.print("\tPANID (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].pan_id,HEX);
-        Serial.print("\tSource (Packet): ");Serial.println(TxQueue[TxQueue_SentIndex].sourceaddress,HEX);
+        Serial.print("Header Length (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].header_length,HEX);
+        Serial.print("\tPacket Length (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].frame_length,HEX);
+        Serial.print("\tFrame Control (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].frame_control,HEX);
+        Serial.print("\tDestination (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].destination,HEX);
+        Serial.print("\tPANID (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].pan_id,HEX);
+        Serial.print("\tSource (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].sourceaddress,HEX);
       */
       // Now load the payload:
-      uint8_t _payloadSize = TxQueue[TxQueue_SentIndex].payload[0];  //User must supply payload length in the first byte of the array.
+      uint8_t _payloadSize = gblQueues.tx[gblQueues.txSentIndex].payload[0];  //User must supply payload length in the first byte of the array.
       Mrf24j_Write(MRF24J_TxN_PAYLOADSTART, _payloadSize);
       for (uint8_t _i = 1; _i <= _payloadSize; _i++)
       {
-        Mrf24j_Write(MRF24J_TxN_PAYLOADSTART + _i, TxQueue[TxQueue_SentIndex].payload[_i]);
-        // Serial.println(TxQueue[TxQueue_SentIndex].payload[_i]);
+        Mrf24j_Write(MRF24J_TxN_PAYLOADSTART + _i, gblQueues.tx[gblQueues.txSentIndex].payload[_i]);
+        // Serial.println(gblQueues.tx[gblQueues.txSentIndex].payload[_i]);
       }
     
       Mrf24j_Write(MRF24J_TXNCON, MRF24J_TXNTRIG);  // Transmit the packet
       //Serial.println(Mrf24j_Read(MRF24J_TXSTAT),BIN);
-      TxQueue_SentIndex++; if(TxQueue_SentIndex > TX_BUFFER_DEPTH) TxQueue_SentIndex=0;
+      gblQueues.txSentIndex++; if(gblQueues.txSentIndex > TX_BUFFER_DEPTH) gblQueues.txSentIndex=0;
       #ifdef TX_MONITOR
-      Serial.print("Tx ");Serial.println(TxQueue_SentIndex);
+      Serial.print("Tx ");Serial.println(gblQueues.txSentIndex);
       #endif
     }
   }

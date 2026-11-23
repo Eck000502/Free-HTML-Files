@@ -14,7 +14,7 @@
 // TOC Begin
 void WHAT_LINK_begin (void)
 {
-  WHAT_Reusable_Message2 = RegisterWHATMessage (0xFFFF, &holdingFunction); // This entry can be re-used during network adoption.
+  gblLink.reusableSlot = RegisterWHATMessage (0xFFFF, &holdingFunction); // This entry can be re-used during network adoption.
   RegisterWHATMessage (REMOVE_FULL_LINK_03, &Rx_REMOVE_FULL_LINK_03); // This is an entry that will not change.
   WHAT_HardwareSetup();
 
@@ -36,8 +36,8 @@ void Loop_WHAT_LINK (void)
 // TOC Individual Recieve messages
 void  Rx_REQUEST_FULL_LINK_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
-  _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
-  f_Rx_REQUEST_FULL_LINK_03 = true;   
+  gblJoining.sourceAddress = _WHAT_Rx_Packet.sourceaddress;
+  gblLinkRxFlags.f_REQUEST_FULL_LINK_03 = true;   
    #ifdef LINK_MONITOR
   Serial.println(F("Rx Rqst Link"));
    #endif
@@ -51,7 +51,7 @@ void Tx_REQUEST_FULL_LINK(void)
    #endif
     WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
     _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
     _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
     _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
     uint8_t _index = 0;
@@ -66,8 +66,8 @@ void Tx_REQUEST_FULL_LINK(void)
 // TOC Individual Recieve messages
 void  Rx_ACCEPT_FULL_LINK_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
-  _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
-  f_Rx_ACCEPT_FULL_LINK_03 = true;
+  gblJoining.sourceAddress = _WHAT_Rx_Packet.sourceaddress;
+  gblLinkRxFlags.f_ACCEPT_FULL_LINK_03 = true;
    #ifdef LINK_MONITOR
   Serial.println(F("Rx Accept Link"));
    #endif
@@ -75,9 +75,9 @@ void  Rx_ACCEPT_FULL_LINK_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 
 void Rx_REJECT_FULL_LINK_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {  // This would be recieved if some other device started creating a link, but then timed out.
-   _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
-   COMMANDED_OUTPUTS = _WHAT_Rx_Packet.payload[_index + 4];
-   f_Rx_REJECT_FULL_LINK_03 = true;
+   gblJoining.sourceAddress = _WHAT_Rx_Packet.sourceaddress;
+   gblLink.commandedOutputs = _WHAT_Rx_Packet.payload[_index + 4];
+   gblLinkRxFlags.f_REJECT_FULL_LINK_03 = true;
    #ifdef LINK_MONITOR
      Serial.println(F("Rx REJECT Link"));
    #endif
@@ -93,7 +93,7 @@ void Tx_REJECT_FULL_LINK_03 (void)
    #endif
     WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
     _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
     _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
     _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
     uint8_t _index = 0;
@@ -109,9 +109,9 @@ void Tx_REJECT_FULL_LINK_03 (void)
 void Rx_REMOVE_FULL_LINK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 { // An already linked device indicated it wanted to be un-linked.
   // locate that device in the link list and set its address to "Available"
-  _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
+  gblJoining.sourceAddress = _WHAT_Rx_Packet.sourceaddress;
 
-  f_Rx_REMOVE_FULL_LINK_03 = true;
+  gblLinkRxFlags.f_REMOVE_FULL_LINK_03 = true;
    #ifdef LINK_MONITOR
    Serial.println(F("Rx REMOVE_FULL_LINK"));
    #endif
@@ -119,8 +119,8 @@ void Rx_REMOVE_FULL_LINK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 
 void Rx_CMD_DIG01_04 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
-  _Offered_SourceAddress = _WHAT_Rx_Packet.sourceaddress;
-  f_Rx_CMD_DIG01_04 = true;
+  gblJoining.sourceAddress = _WHAT_Rx_Packet.sourceaddress;
+  gblLinkRxFlags.f_CMD_DIG01_04 = true;
    #ifdef LINK_MONITOR
    Serial.println(F("Rx Digital Command"));
    #endif
@@ -128,26 +128,26 @@ void Rx_CMD_DIG01_04 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 
 // *****************
  // other supporting functions.
-uint8_t  isLinkAvailable(uint16_t _Offered_SourceAddress = 0xFFFF)
+uint8_t  isLinkAvailable(uint16_t _offeredSourceAddress = 0xFFFF)
 {    
         uint8_t _blankspot = 0xFF;
-        _WHAT_Already_Linked = numWHATLinks;
+        gblLink.alreadyLinked = numWHATLinks;
         // Link is being requested.
         for (uint8_t _i=0;_i<numWHATLinks;_i++)
         {
           #ifdef LINK_MONITOR
-            Serial.println(WHATLinks[_i],HEX);
+            Serial.println(gblLink.links[_i],HEX);
           #endif
-          if((WHATLinks[_i] == _Offered_SourceAddress)) _WHAT_Already_Linked = _i; // This device was previously linked.
-          if((_blankspot == 0xFF) & (WHATLinks[_i] == 0xFFFF)) _blankspot = _i; // Keep track fo teh first blank spot
+          if((gblLink.links[_i] == _offeredSourceAddress)) gblLink.alreadyLinked = _i; // This device was previously linked.
+          if((_blankspot == 0xFF) & (gblLink.links[_i] == 0xFFFF)) _blankspot = _i; // Keep track fo teh first blank spot
         }
-        if(_WHAT_Already_Linked == numWHATLinks) _WHAT_Already_Linked = _blankspot; // if not already linked, use the blank spot.
-        // Now "_WHAT_Already_Linked" = either the location of previous link, an empty spot, or 0xFF if neither found,
+        if(gblLink.alreadyLinked == numWHATLinks) gblLink.alreadyLinked = _blankspot; // if not already linked, use the blank spot.
+        // Now "gblLink.alreadyLinked" = either the location of previous link, an empty spot, or 0xFF if neither found,
       #ifdef LINK_MONITOR
-      Serial.print(F("_WHAT_Already_Linked value: "));Serial.println(_WHAT_Already_Linked);
-      //Serial.print(F("WHATLinks[_i] value: "));Serial.println(WHATLinks[_WHAT_Already_Linked]);
+      Serial.print(F("gblLink.alreadyLinked value: "));Serial.println(gblLink.alreadyLinked);
+      //Serial.print(F("gblLink.links[_i] value: "));Serial.println(gblLink.links[gblLink.alreadyLinked]);
       #endif
-      return _WHAT_Already_Linked;
+      return gblLink.alreadyLinked;
 }
 
 
@@ -156,20 +156,20 @@ void WHAT_LinkCheck(void)
 {
 
   //TOC Evaluate WHAT LINK state
-  switch (_WHAT_LINK_State)
+  switch (gblLink.state)
   {
     /**********************************************************************************/
     /**********************************************************************************/
     /**********************************************************************************/
 
     case  WHAT_NO_LINK:
-      if( (_WHAT_NetworkButton == HIGH) & (mySourceAddress < 0xFFFF) )
+      if( (gblMailbox.networkButton == HIGH) & (mySourceAddress < 0xFFFF) )
        { // If the button is held and this is NOT a preemie, start the linking process.
-          _WHAT_Already_Linked = isLinkAvailable(); // Check and see if a link location if available.
-          if(_WHAT_Already_Linked < numWHATLinks)
+          gblLink.alreadyLinked = isLinkAvailable(); // Check and see if a link location if available.
+          if(gblLink.alreadyLinked < numWHATLinks)
           { //only move to the next phase if a link location is available.
-            WHAT_Reusable_Timer1 = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
-           _WHAT_LINK_State = WHAT_PRE_LINKING_INITIATED;  // This device is initiating a link
+            gblScratch.timer1 = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
+           gblLink.state = WHAT_PRE_LINKING_INITIATED;  // This device is initiating a link
           }
           else
           {
@@ -178,16 +178,16 @@ void WHAT_LinkCheck(void)
             #endif
           }
        }
-      if (f_Rx_REQUEST_FULL_LINK_03)     // If another device wants to link to this device, the link will be initiated.
+      if (gblLinkRxFlags.f_REQUEST_FULL_LINK_03)     // If another device wants to link to this device, the link will be initiated.
       {
-        _WHAT_Already_Linked = isLinkAvailable(); // Check and see if a link location if available.
-        if(_WHAT_Already_Linked < numWHATLinks)
+        gblLink.alreadyLinked = isLinkAvailable(); // Check and see if a link location if available.
+        if(gblLink.alreadyLinked < numWHATLinks)
         {
-          f_Rx_REQUEST_FULL_LINK_03 = false; // Mark the reception flag as used so it is not duplicated.
-          WHAT_Reusable_Timer1 = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
-          _WHAT_LINK_State = WHAT_PRE_LINK_REQUESTED;
+          gblLinkRxFlags.f_REQUEST_FULL_LINK_03 = false; // Mark the reception flag as used so it is not duplicated.
+          gblScratch.timer1 = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
+          gblLink.state = WHAT_PRE_LINK_REQUESTED;
           #ifdef LINK_MONITOR
-           Serial.print(F("_WHAT_network_State: WHAT_PRE_LINK_REQUESTED ")); Serial.println(_WHAT_network_State);
+           Serial.print(F("gblMailbox.networkState: WHAT_PRE_LINK_REQUESTED ")); Serial.println(gblMailbox.networkState);
           #endif
         }
         else
@@ -197,10 +197,10 @@ void WHAT_LinkCheck(void)
           #endif
         }
       }
-      if(f_Rx_REMOVE_FULL_LINK_03)
+      if(gblLinkRxFlags.f_REMOVE_FULL_LINK_03)
       {
-        f_Rx_REMOVE_FULL_LINK_03 = false;   // Make sure previously set flag is cleared.  
-        _WHAT_LINK_State = WHAT_REMOVE_LINK;
+        gblLinkRxFlags.f_REMOVE_FULL_LINK_03 = false;   // Make sure previously set flag is cleared.  
+        gblLink.state = WHAT_REMOVE_LINK;
       }
 
    break;
@@ -210,33 +210,33 @@ void WHAT_LinkCheck(void)
 // ************************************************************************
 // ************************************************************************
     case  WHAT_PRE_LINKING_INITIATED:
-          if (_WHAT_NetworkButton == HIGH)
+          if (gblMailbox.networkButton == HIGH)
           { // Button is still held.
             _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 200,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 200 );
 
-            if(WHAT_Reusable_Timer1 <= millis())
+            if(gblScratch.timer1 <= millis())
             { // Network button was held long enough.
-              WHATRxMessage[WHAT_Reusable_Message1].MessageID = ACCEPT_FULL_LINK_03;    // A preemie is trying to gain access to the network.
-              WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_ACCEPT_FULL_LINK_03; // Message callback set here to collect the responses
-              WHATRxMessage[WHAT_Reusable_Message2].MessageID = REJECT_FULL_LINK_03;    // A preemie is trying to gain access to the network.
-              WHATRxMessage[WHAT_Reusable_Message2].callback = &Rx_REJECT_FULL_LINK_03; // Message callback set here to collect the responses
-              _WHAT_network_StateColor = WHAT_LIGHT_OFF;
-              f_Rx_REQUEST_FULL_LINK_03 = false;  // Make sure previously set flag is cleared.  
-              f_Rx_ACCEPT_FULL_LINK_03 = false;  // Make sure previously set flag is cleared.     
-              f_Rx_REJECT_FULL_LINK_03 = false;  // Make sure previously set flag is cleared.  
+              gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_FULL_LINK_03;    // A preemie is trying to gain access to the network.
+              gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_ACCEPT_FULL_LINK_03; // Message callback set here to collect the responses
+              gblRegistry.message[gblLink.reusableSlot].MessageID = REJECT_FULL_LINK_03;    // A preemie is trying to gain access to the network.
+              gblRegistry.message[gblLink.reusableSlot].callback = &Rx_REJECT_FULL_LINK_03; // Message callback set here to collect the responses
+              gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+              gblLinkRxFlags.f_REQUEST_FULL_LINK_03 = false;  // Make sure previously set flag is cleared.  
+              gblLinkRxFlags.f_ACCEPT_FULL_LINK_03 = false;  // Make sure previously set flag is cleared.     
+              gblLinkRxFlags.f_REJECT_FULL_LINK_03 = false;  // Make sure previously set flag is cleared.  
               Tx_REQUEST_FULL_LINK();  // Request linking across the network.
               #ifdef LINK_MONITOR
                   Serial.println(F("Tx Rqst Link"));
               #endif
-              WHAT_Reusable_Timer1 = millis() + _WHAT_NEW_Link_TIME_DELAY;
-              _WHAT_LINK_State = WHAT_LINKING_INITIATED;
+              gblScratch.timer1 = millis() + _WHAT_NEW_Link_TIME_DELAY;
+              gblLink.state = WHAT_LINKING_INITIATED;
 
             }
           }
            else
           { // If the button is released before the required amount of time, do not initiate the state.
-            _WHAT_network_StateColor = WHAT_LIGHT_OFF;
-            _WHAT_LINK_State = WHAT_NO_LINK;
+            gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+            gblLink.state = WHAT_NO_LINK;
           }
         break;
 
@@ -247,59 +247,59 @@ void WHAT_LinkCheck(void)
         // Blink GREEN while waiting.
       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_BLUE,/*Light Color 2 time*/ 100 );
 
-      if(WHAT_Reusable_Timer1 < millis()) 
+      if(gblScratch.timer1 < millis()) 
         {
           #ifdef LINK_MONITOR
           Serial.println(F("Link to me -timeout-"));
           Serial.println(F("Tx_REJECT_FULL_LINK_03"));
         #endif
           Tx_REJECT_FULL_LINK_03();   // Let other devices know the link was rejected.
-           WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Keep it red for several seconds.
-           _WHAT_network_StateColor = WHAT_LIGHT_RED;
-           _WHAT_LINK_State = WHAT_LINK_COMPLETED; // no response.  indicate that the link was not accepted.  
+           gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it red for several seconds.
+           gblMailbox.networkStateColor = WHAT_LIGHT_RED;
+           gblLink.state = WHAT_LINK_COMPLETED; // no response.  indicate that the link was not accepted.  
         }
-      if(f_Rx_ACCEPT_FULL_LINK_03)
+      if(gblLinkRxFlags.f_ACCEPT_FULL_LINK_03)
       { // Link accepted.  
         // Make sure the offered address is not already linked...
-        f_Rx_ACCEPT_FULL_LINK_03 = false;     // Make sure previously set flag is cleared.  
-        _WHAT_Already_Linked = isLinkAvailable(); // Check and see if a link location if available.
-        if(_WHAT_Already_Linked < numWHATLinks)
+        gblLinkRxFlags.f_ACCEPT_FULL_LINK_03 = false;     // Make sure previously set flag is cleared.  
+        gblLink.alreadyLinked = isLinkAvailable(); // Check and see if a link location if available.
+        if(gblLink.alreadyLinked < numWHATLinks)
         { // A Link spot is available
-          if(WHATLinks[_WHAT_Already_Linked] == _Offered_SourceAddress)
+          if(gblLink.links[gblLink.alreadyLinked] == gblJoining.sourceAddress)
           { // If the same address tries to link again, it should be removed from the link:
-            WHATLinks[_WHAT_Already_Linked] = 0xFFFF;
+            gblLink.links[gblLink.alreadyLinked] = 0xFFFF;
             #ifdef LINK_MONITOR
               Serial.println(F("Link to me -Removed-"));
-              Serial.print(F("List Location: "));Serial.println(_WHAT_Already_Linked);
-              //Serial.print(F("WHATLinks[_i] value: 0x"));Serial.println(WHATLinks[_WHAT_Already_Linked],HEX);
+              Serial.print(F("List Location: "));Serial.println(gblLink.alreadyLinked);
+              //Serial.print(F("gblLink.links[_i] value: 0x"));Serial.println(gblLink.links[gblLink.alreadyLinked],HEX);
             #endif
-            _WHAT_network_StateColor = WHAT_LIGHT_RED;
-            WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Keep it RED for several seconds.
-            _WHAT_LINK_State = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
+            gblMailbox.networkStateColor = WHAT_LIGHT_RED;
+            gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it RED for several seconds.
+            gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
           }
           else
           {
-            WHATLinks[_WHAT_Already_Linked] = _Offered_SourceAddress;
+            gblLink.links[gblLink.alreadyLinked] = gblJoining.sourceAddress;
             #ifdef LINK_MONITOR
               Serial.println(F("Link to me -Accepted-"));
-              Serial.print(F("List Location: "));Serial.println(_WHAT_Already_Linked);
-              //Serial.print(F("WHATLinks[_i] value: 0x"));Serial.println(WHATLinks[_WHAT_Already_Linked],HEX);
+              Serial.print(F("List Location: "));Serial.println(gblLink.alreadyLinked);
+              //Serial.print(F("gblLink.links[_i] value: 0x"));Serial.println(gblLink.links[gblLink.alreadyLinked],HEX);
             #endif
-            _WHAT_network_StateColor = WHAT_LIGHT_GREEN;
-            WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
-            _WHAT_LINK_State = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
+            gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
+            gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+            gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
           }
         }
         else
         { // for some reason, there are no longer availble links on this device.
-            _WHAT_network_StateColor = WHAT_LIGHT_RED;
+            gblMailbox.networkStateColor = WHAT_LIGHT_RED;
             #ifdef LINK_MONITOR
               Serial.println(F("No Links available suddenly"));
-              Serial.print(F("_WHAT_Already_Linked: "));Serial.println(_WHAT_Already_Linked);
-              //Serial.print(F("WHATLinks[_i] value: 0x"));Serial.println(WHATLinks[_WHAT_Already_Linked],HEX);
+              Serial.print(F("gblLink.alreadyLinked: "));Serial.println(gblLink.alreadyLinked);
+              //Serial.print(F("gblLink.links[_i] value: 0x"));Serial.println(gblLink.links[gblLink.alreadyLinked],HEX);
             #endif
-            WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
-            _WHAT_LINK_State = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
+            gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+            gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
 
         }
       }
@@ -312,15 +312,15 @@ void WHAT_LinkCheck(void)
         // Before giving the chance, make sure this device is not already connected.
         // ALso, if this device is already linked to this device, pressing the button will remove the link.
         
-        _WHAT_Already_Linked = isLinkAvailable(_Offered_SourceAddress); // Check and see if a link location if available.
-        if(WHATLinks[_WHAT_Already_Linked] == _Offered_SourceAddress )
+        gblLink.alreadyLinked = isLinkAvailable(gblJoining.sourceAddress); // Check and see if a link location if available.
+        if(gblLink.links[gblLink.alreadyLinked] == gblJoining.sourceAddress )
         {
-          WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME;
-          _WHAT_LINK_State = WHAT_REMOVE_LINK; //Prepare to remove link
+          gblScratch.timer1 = millis() + _RQST_WAIT_TIME;
+          gblLink.state = WHAT_REMOVE_LINK; //Prepare to remove link
         }
         else
         {
-          _WHAT_LINK_State = WHAT_LINK_REQUESTED; // Prepare to accept link
+          gblLink.state = WHAT_LINK_REQUESTED; // Prepare to accept link
 
         }
  
@@ -331,19 +331,19 @@ void WHAT_LinkCheck(void)
 // TOC    Another device is attempting to link to this (or another) device
         // If the button on this device is pressed, make a link.
 
-      if( (_WHAT_NetworkButton == HIGH) & (mySourceAddress <0xFFFF) )
+      if( (gblMailbox.networkButton == HIGH) & (mySourceAddress <0xFFFF) )
       {
         // WHAT_PRE_LINK_REQUESTED already verified that this device has a free spot and not already linked to this source address. 
-        _WHAT_Already_Linked = isLinkAvailable(_Offered_SourceAddress); // find the free spot where this link will be marked.
-        WHATLinks[_WHAT_Already_Linked] = _Offered_SourceAddress;
+        gblLink.alreadyLinked = isLinkAvailable(gblJoining.sourceAddress); // find the free spot where this link will be marked.
+        gblLink.links[gblLink.alreadyLinked] = gblJoining.sourceAddress;
         _EEPROM_store_links();  // Update the link list table with the new address.
         // Tx link Confirmation
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
         _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
         // In all cases, if a child address is being proposed, also inform the network that a preemie wants to join.
         // In addition to proposing a child, tell the entire network that a child is trying to join:
-        _WHAT_Tx_Packet.pan_id = myPANID;
-        _WHAT_Tx_Packet.destination = _Offered_SourceAddress;   // Send this to all devices.
+        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+        _WHAT_Tx_Packet.destination = gblJoining.sourceAddress;   // Send this to all devices.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
         uint8_t _index = 0;
         _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
@@ -352,49 +352,49 @@ void WHAT_LinkCheck(void)
         _WHAT_Tx_Packet.payload[_index++] = lowByte(ACCEPT_FULL_LINK_03);
         WHAT_TransmitPacket(_WHAT_Tx_Packet);
       #ifdef LINK_MONITOR
-           Serial.print(F("Link Accepted to : 0x"));Serial.println(_Offered_SourceAddress,HEX);
+           Serial.print(F("Link Accepted to : 0x"));Serial.println(gblJoining.sourceAddress,HEX);
       #endif
-        _WHAT_network_StateColor = WHAT_LIGHT_GREEN;
-        WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
-        _WHAT_LINK_State = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
+        gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
+        gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+        gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
  
       }
-      if(f_Rx_REJECT_FULL_LINK_03)
+      if(gblLinkRxFlags.f_REJECT_FULL_LINK_03)
       {   
-        f_Rx_REJECT_FULL_LINK_03 = false; // Make sure previously set flag is cleared.  
+        gblLinkRxFlags.f_REJECT_FULL_LINK_03 = false; // Make sure previously set flag is cleared.  
       #ifdef LINK_MONITOR
         Serial.println(F("Link to me -Rx reject-"));
-        _WHAT_LINK_State =  WHAT_NO_LINK; // Reset to the "normal" state when the timer expires.
+        gblLink.state =  WHAT_NO_LINK; // Reset to the "normal" state when the timer expires.
       #endif
       }
 
-      if(WHAT_Reusable_Timer1 <= millis())
+      if(gblScratch.timer1 <= millis())
       {
       #ifdef LINK_MONITOR
        Serial.println(F("Link to me -timeout-"));
-        _WHAT_LINK_State =  WHAT_NO_LINK; // Reset to the "normal" state when the timer expires.
+        gblLink.state =  WHAT_NO_LINK; // Reset to the "normal" state when the timer expires.
       #endif
       }
 
      break;
 
     case WHAT_REMOVE_LINK:
-      if( (_WHAT_NetworkButton == HIGH) & (mySourceAddress <0xFFFF) )
+      if( (gblMailbox.networkButton == HIGH) & (mySourceAddress <0xFFFF) )
       {
-         _WHAT_Already_Linked = isLinkAvailable(_Offered_SourceAddress); // Find where this source address is stored. 
-        WHATLinks[_WHAT_Already_Linked] = 0xFFFF; //remove the link to this address.
-        _WHAT_network_StateColor = WHAT_LIGHT_RED;
-        WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
-        _WHAT_LINK_State = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
+         gblLink.alreadyLinked = isLinkAvailable(gblJoining.sourceAddress); // Find where this source address is stored. 
+        gblLink.links[gblLink.alreadyLinked] = 0xFFFF; //remove the link to this address.
+        gblMailbox.networkStateColor = WHAT_LIGHT_RED;
+        gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+        gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.  
         #ifdef LINK_MONITOR
-        Serial.print(F("Unlink :0x"));Serial.println(WHATLinks[_WHAT_Already_Linked]);
+        Serial.print(F("Unlink :0x"));Serial.println(gblLink.links[gblLink.alreadyLinked]);
         #endif
         _EEPROM_store_links();  // Update the link list table with the new address.
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
         _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
         // In all cases, if a link is being removed, also inform the other device that it should be removed from the link table.
-        _WHAT_Tx_Packet.pan_id = myPANID;
-        _WHAT_Tx_Packet.destination = _Offered_SourceAddress;   // Send this to the previously linked device.
+        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+        _WHAT_Tx_Packet.destination = gblJoining.sourceAddress;   // Send this to the previously linked device.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
         uint8_t _index = 0;
         _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
@@ -403,21 +403,21 @@ void WHAT_LinkCheck(void)
         _WHAT_Tx_Packet.payload[_index++] = lowByte(REMOVE_FULL_LINK_03);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
       }
-      if(WHAT_Reusable_Timer1 <= millis())
+      if(gblScratch.timer1 <= millis())
       {
         Serial.println(F("REMOVE link -timeout-"));
-        _WHAT_LINK_State =  WHAT_NO_LINK; // Reset to the "normal" state when the timer expires.
+        gblLink.state =  WHAT_NO_LINK; // Reset to the "normal" state when the timer expires.
       }
     break;
  
     case  WHAT_LINK_COMPLETED:
-        if (WHAT_Reusable_Timer2 <= millis())
+        if (gblScratch.timer2 <= millis())
         {  // The button was held long enough.
-          _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+          gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
         #ifdef LINK_MONITOR
             Serial.println(F("WHAT_LINKING_FAIL"));
           #endif
-        _WHAT_LINK_State = WHAT_NO_LINK;
+        gblLink.state = WHAT_NO_LINK;
         }
     break;
 
@@ -425,11 +425,11 @@ void WHAT_LinkCheck(void)
     default:
         // If in an invalid state, revert to no link.
         #ifdef LINK_MONITOR
-        //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
-        Serial.print(F("Undefined LINK state : ")); Serial.println(_WHAT_LINK_State,DEC);
+        //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
+        Serial.print(F("Undefined LINK state : ")); Serial.println(gblLink.state,DEC);
         #endif
-        //_WHAT_network_State = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
-        _WHAT_LINK_State = WHAT_NO_LINK;  //
+        //gblMailbox.networkState = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+        gblLink.state = WHAT_NO_LINK;  //
       break;
 
   }
@@ -439,11 +439,11 @@ void  WHAT_HardwareSetup(void)
 {
   for (uint8_t _i = 0; _i <= NUM_INPUTS; _i++)
   {
-      pinMode(_InputPinForLink[_i],INPUT);
+      pinMode(gblLinkIO.inputPin[_i],INPUT);
   }
   for (uint8_t _i = 0; _i <= NUM_OUTPUTS; _i++)
   {
-      pinMode(_OutputPinForLink[_i],OUTPUT);
+      pinMode(gblLinkIO.outputPin[_i],OUTPUT);
   }
 }
 
@@ -452,22 +452,22 @@ void WHAT_HardwareCheck(void)
   uint8_t _this_InputValueForLink = 0;   // This is a combined value for the inputs.
   uint8_t _this_OutputValueForLink = 0;   // This is a combined value for the inputs.
 
-  static uint8_t _last_InputValueForLink;   // This is a combined value for the inputs.
-  static uint8_t _last_OutputValueForLink;   // This is a combined value for the inputs.
-  static double  _transmission_delay = millis();       // Limit I/O updates using this timer.
+  static uint8_t _st_last_InputValueForLink;   // This is a combined value for the inputs.
+  static uint8_t _st_last_OutputValueForLink;   // This is a combined value for the inputs.
+  static double  _st_transmission_delay = millis();       // Limit I/O updates using this timer.
 
   // *********
  // -IF- an input value changed, transmit the new value.
   for (uint8_t _i = 0; _i <= NUM_INPUTS; _i++)
   {
-      _this_InputValueForLink = (((_i*2)*digitalRead(_InputPinForLink[_i])) | _this_InputValueForLink);
+      _this_InputValueForLink = (((_i*2)*digitalRead(gblLinkIO.inputPin[_i])) | _this_InputValueForLink);
           // This takes each bit, and shifts it (right to left) to fill the input value bit.
           // After all itterations, it is a single byte representing "NUM_INPUTS" bits.
   } 
-  if((_this_InputValueForLink != _last_InputValueForLink) & (_transmission_delay <= millis()))
+  if((_this_InputValueForLink != _st_last_InputValueForLink) & (_st_transmission_delay <= millis()))
   { // the input status has changed.  send the new value.
        WHAT_Packet _WHAT_Tx_Packet;    // Create a temporary transmit packet.
-      _WHAT_Tx_Packet.pan_id = myPANID;
+      _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
       _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
       _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
       uint8_t _index = 0;
@@ -477,8 +477,8 @@ void WHAT_HardwareCheck(void)
       _WHAT_Tx_Packet.payload[_index++] = lowByte(CMD_DIG01_04);
       _WHAT_Tx_Packet.payload[_index++] = _this_InputValueForLink;  // This is a value for confirming allowance.
     WHAT_TransmitPacket(_WHAT_Tx_Packet);
-    _last_InputValueForLink = _this_InputValueForLink;
-    _transmission_delay = millis() + _WHAT_LINK_INPUT_UPDATE_RATE;
+    _st_last_InputValueForLink = _this_InputValueForLink;
+    _st_transmission_delay = millis() + _WHAT_LINK_INPUT_UPDATE_RATE;
 
      #ifdef LINK_MONITOR
      Serial.println(F("Linked Input Update Sent : ")); 
@@ -489,15 +489,15 @@ void WHAT_HardwareCheck(void)
 
   // *********
   // -IF- a I/O message arrived, verify it is from a LINKED address, then act on it.
-  if( f_Rx_CMD_DIG01_04)
+  if( gblLinkRxFlags.f_CMD_DIG01_04)
   {
-    f_Rx_CMD_DIG01_04 = false;  // Make sure previously set flag is cleared.  
-    _WHAT_Already_Linked = isLinkAvailable(_Offered_SourceAddress); // Find -IF- this source address is stored. 
-    if(_WHAT_Already_Linked < numWHATLinks)
+    gblLinkRxFlags.f_CMD_DIG01_04 = false;  // Make sure previously set flag is cleared.  
+    gblLink.alreadyLinked = isLinkAvailable(gblJoining.sourceAddress); // Find -IF- this source address is stored. 
+    if(gblLink.alreadyLinked < numWHATLinks)
     {
       for (uint8_t _i = 0; _i <= NUM_OUTPUTS; _i*2)
       {
-          digitalWrite(_OutputValueForLink[_i],(COMMANDED_OUTPUTS & _i));
+          digitalWrite(gblLinkIO.outputValue[_i],(gblLink.commandedOutputs & _i));
             //i moves binary one bit at a time through the commanded outputs to isolate the specific commanded output value.
       }
 

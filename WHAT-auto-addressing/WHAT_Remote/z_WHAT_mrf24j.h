@@ -8,8 +8,13 @@
 #include "z_mrf24j_Registers.h"
 
 #//define NumBufferRxMessages 4 // Make this number larger if "registering" more messages.
-uint8_t GBL_rx_index = 0;
-WHAT_Packet WHAT_Buff_Message[RX_BUFFER_DEPTH];
+// Group: WHAT_Radio (instance gblRadio) - the MRF24J receive buffer (physical layer seam).
+struct WHAT_Radio
+{
+  WHAT_Packet rxBuffer[RX_BUFFER_DEPTH];
+  uint8_t rxIndex = 0;
+};
+WHAT_Radio gblRadio;
 
 //#define PHYSICAL_MRF24J
 //#include "z_WHAT_mrf24j.h"	// Physical layer routines.
@@ -31,7 +36,7 @@ WHAT_Packet WHAT_Buff_Message[RX_BUFFER_DEPTH];
 // 888888888888888888 Prototypes 88888888888888888888888888
 // Public:
 //void  mrf.init(void);
-//void Mrf24j_begin (uint16_t myPANID, uint16_t mySourceAddress);
+//void Mrf24j_begin (uint16_t gblNetwork.panID, uint16_t mySourceAddress);
 
 // Private
 

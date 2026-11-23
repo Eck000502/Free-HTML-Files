@@ -65,10 +65,10 @@
 //
 //  //digitalWrite(b_BUTTON_LIGHT_PIN,WHAT_NetworkLight); //make the physical light reflect the state of the network light value.
 //
-//   if(_LastNetworkStateColor != _WHAT_network_StateColor )
+//   if(_st_lastNetworkStateColor != gblMailbox.networkStateColor )
 //   {
-//     _LastNetworkStateColor = _WHAT_network_StateColor;
-//     switch(_WHAT_network_StateColor)
+//     _st_lastNetworkStateColor = gblMailbox.networkStateColor;
+//     switch(gblMailbox.networkStateColor)
 //     {
 //       case WHAT_LIGHT_OFF:
 //         digitalWrite(b_RED_RGB_PIN,HIGH);   //Light off.
@@ -99,11 +99,11 @@
 //         break;
          
 //      default:
-//         Serial.print("Invalid Light State : 0x");Serial.println(_WHAT_network_StateColor,HEX);
-//         _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+//         Serial.print("Invalid Light State : 0x");Serial.println(gblMailbox.networkStateColor,HEX);
+//         gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
 //         break;   
 //     }
-//     Show_btn_NETWORK(/*Color of the button*/ILI9341_DARKGREEN, /*Color of the text*/ILI9341_BLACK, /*line1 Text*/ " Online ",/*line2 Text*/ String(myPANID));
+//     Show_btn_NETWORK(/*Color of the button*/ILI9341_DARKGREEN, /*Color of the text*/ILI9341_BLACK, /*line1 Text*/ " Online ",/*line2 Text*/ String(gblNetwork.panID));
 //         break;
 
 
@@ -166,9 +166,15 @@ enum WHAT_State{
 
 };
 
-bool _WHAT_NetworkButton = 0;      // Given to WHAT.ino to indicate the state of the physical or virtual netowrk button.
-WHAT_State _WHAT_network_State = WHAT_STARTUP;   // Obtained from WHAT.ino:  Indicates the current network status for displaying to operator.
-WHAT_LedColor _WHAT_network_StateColor = WHAT_LIGHT_OFF;    //Controlled in WHAT.ino to give a color indication to show device state.
+// Group: WHAT_Mailbox (instance gblMailbox) - the app <-> WHAT core interface.
+// Only the application layer and the WHAT core touch these, each in one direction.
+struct WHAT_Mailbox
+{
+  bool networkButton = 0;                    // App writes, WHAT reads: state of the physical or virtual network button.
+  WHAT_State networkState = WHAT_STARTUP;    // WHAT writes, app may display: current network status.
+  WHAT_LedColor networkStateColor = WHAT_LIGHT_OFF; // WHAT writes, app renders: network light color (RGB pins, or a screen section).
+};
+WHAT_Mailbox gblMailbox;
 
 //  **********************   Network Button and lights   **********************  //
 // Uncomment ONE of these to determine what type of device this is.
@@ -183,13 +189,18 @@ WHAT_LedColor _WHAT_network_StateColor = WHAT_LIGHT_OFF;    //Controlled in WHAT
 #ifdef AUTO_ADDRESSING
 
 #define ChildMaxIndex 15
-uint16_t _Offered_PANID = 0xFF;          // When joining a network, this is the PANID of the network being joined.
-uint16_t _Offered_SourceAddress = 0xFF;  // when  joining a network, this is the lowest new address offered.
-uint16_t _Offered_Parent = 0xFF; 
-uint16_t _Offered_Latchkey = 0xFF;      // this is the latchkey offered by the parent with the lowest offered address.
-
-
-uint16_t  _WHAT_Child_Used = 0xFF;
+// Group: WHAT_Joining (instance gblJoining) - an offer in progress while a preemie joins.
+// These only have meaning during joining; reset them together when a join ends or times out.
+struct WHAT_Joining
+{
+  uint16_t panID = 0xFF;          // PANID of the network being joined.
+  uint16_t sourceAddress = 0xFF;  // Lowest new address offered.
+  uint16_t parent = 0xFF;         // Parent offering that address.
+  uint16_t latchkey = 0xFF;       // Latchkey offered by the parent with the lowest offered address.
+};
+WHAT_Joining gblJoining;
+// NOTE (Nov 2026 rename pass): _WHAT_Child_Used is no longer a global - it is a local
+// variable at its one call site in z_WHAT.ino (Gary's decision).
 
 struct ChildType
 {
@@ -197,19 +208,38 @@ struct ChildType
   uint16_t LatchKeyValue = 0xFFFF;
   uint8_t  RelationshipType = 0;
   uint16_t  Security = 0xFFFF;
-}myChildren[ChildMaxIndex];// each device can have up to 15 children.// each device can have up to 15 children.
+};
 
-// myChildren[0] is used by THIS device to hold its own information
-#define mySourceAddress myChildren[0].ChildAddress   // This is saved in and loaded from EEPROM
-#define myLatchKeyNumber myChildren[0].LatchKeyValue  // A secret number shared between parent and child nodes.
-#define mySecurity myChildren[0].Security
+// gblNetwork.children[0] is used by THIS device to hold its own information
+#define mySourceAddress gblNetwork.children[0].ChildAddress   // This is saved in and loaded from EEPROM
+#define myLatchKeyNumber gblNetwork.children[0].LatchKeyValue  // A secret number shared between parent and child nodes.
+#define mySecurity gblNetwork.children[0].Security
 
-uint16_t myPANID = 0xFFFF;     // This is saved in and loaded from EEPROM
-uint16_t myParentAddress = 0xFFFF; // when I am adopted, I will record the parent's address
-bool f_hasChildren = false;   // quick check (during message forwarding) to see if this device has children.
-                              // This device does not need to forward any messages if it does not have children.
-                              // See WHAT.ino/RX_WHAT (after switch)
-uint16_t myMask = 0x000F;     // this mask is re-calculated when a source address is obtained.  it can be used to remove children from an address comparison, making sure the message should be routed through this device.
+// Group: WHAT_Network (instance gblNetwork) - who I am, who my family is. Saved to EEPROM field-by-field.
+// (The macros above point into gblNetwork.children[0] - this device holds its own info there.)
+struct WHAT_Network
+{
+  uint16_t panID = 0xFFFF;          // This is saved in and loaded from EEPROM
+  uint16_t parentAddress = 0xFFFF;  // When I am adopted, I will record the parent's address
+  ChildType children[ChildMaxIndex]; // each device can have up to 15 children. Index 0 is THIS device.
+  bool hasChildren = false;         // quick check (during message forwarding) to see if this device has children.
+                                    // This device does not need to forward any messages if it does not have children.
+                                    // See WHAT.ino/RX_WHAT (after switch)
+};
+WHAT_Network gblNetwork;
+
+// The network-alive deadline stays a standalone global, NOT a member of gblNetwork:
+// its value is millis()+5000 - a runtime value, not a compile-time constant. Putting it
+// inside the struct would make the whole struct dynamically initialized, and the compiler
+// then keeps a second template copy of the children array in RAM (+105 bytes on a Nano).
+double gbl_t_NetworkAlive = millis()+5000;  // Timeout - when messages on this PANID arrive, reset this.
+bool f_gbl_t_NetworkAlive = true;           // Flag that other network nodes have been seen using THIS PANID
+
+// (gblNetwork.panID, gblNetwork.parentAddress, gblNetwork.hasChildren and the network-alive timer/flag moved into
+//  the WHAT_Network group defined just below the macros that follow - Nov 2026 rename pass.)
+// NOTE: the global myMask that used to be declared here is commented out (Gary, Nov 2026):
+// it appeared unused - the retransmit code in z_WHAT.ino declares its own local myMask.
+//uint16_t myMask = 0x000F;     // this mask is re-calculated when a source address is obtained.  it can be used to remove children from an address comparison, making sure the message should be routed through this device.
 
 #endif  // If Autoaddressing
 
@@ -217,15 +247,14 @@ uint16_t myMask = 0x000F;     // this mask is re-calculated when a source addres
   #define ArrayElementSize(x) (sizeof(x)/sizeof(x[0]))
 #endif
 //bool * _network_button = &WHAT_NetworkButton;     // This will mirror the button styate in the main program.
-//WHAT_State * _network_state = &_WHAT_network_State;    // This will mirror the network light words in the main program.
-//WHAT_LedColor * _network_light_color = &_WHAT_network_StateColor;  // This will mirror the Light color to the main program.
+//WHAT_State * _network_state = &gblMailbox.networkState;    // This will mirror the network light words in the main program.
+//WHAT_LedColor * _network_light_color = &gblMailbox.networkStateColor;  // This will mirror the Light color to the main program.
 
 //void * _Loop_Network_Button_Light();
 #define GLB_T_NETWORKALIVE_RESET 30000;
-double gbl_t_NetworkAlive = millis()+5000;  // Timeout - when messages on this PANID arrive, the reset this.
-bool f_gbl_t_NetworkAlive = true;      // Flag that other network nodes have been seen using THIS PANID
+// (gbl_t_NetworkAlive / f_gbl_t_NetworkAlive moved into gblNetwork - Nov 2026 rename pass.)
 
-double _flash_timer = millis();
+double gbl_t_flash = millis();   // Network-light blink timing, shared by the light routines in z_WHAT.ino.
 //#define _NETWORK_PRESSED *WHAT_network_button = true;
 //#define _NETWORK_RELEASED *WHAT_network_button = false;
 
@@ -298,21 +327,32 @@ struct WHAT_Packet
   uint8_t rssi = 0;
 };
 //#define NumWHATTxMessages TX_BUFFER_DEPTH  // Make this muber bigger if a lot of different messages are being sent asynchronously.
-WHAT_Packet TxQueue[TX_BUFFER_DEPTH];
-uint8_t TxQueue_PendIndex = 0;
-uint8_t TxQueue_SentIndex = 0;
+// Group: WHAT_Queues (instance gblQueues) - packets waiting to send, and the packet in hand.
+struct WHAT_Queues
+{
+  WHAT_Packet tx[TX_BUFFER_DEPTH];
+  uint8_t txPendIndex = 0;
+  uint8_t txSentIndex = 0;
+  WHAT_Packet rxPacket;
+};
+WHAT_Queues gblQueues;
 //WHAT_Packet WHAT_Tx_Packet;
-
-WHAT_Packet WHAT_Rx_Packet;
 
 //MID reception table
 #define NUM_MAX_MESSAGE_REGISTRATIONS 32
-uint8_t WHATRxIndex = 0;     // tracks the number of entries used in the WHAT Rx Array.  "RegisterWHATMessage" increments this value to indicate the number of messages watched.
 struct WHATCallback
 {
   uint16_t MessageID;
   void (* callback)(WHAT_Packet, uint8_t); // Function to be called if this message arrives. 
-}WHATRxMessage[NUM_MAX_MESSAGE_REGISTRATIONS];  // incomming CAN messages will be compared to this list of messages.
+};
+// Group: WHAT_Registry (instance gblRegistry) - who to call when a message arrives.
+struct WHAT_Registry
+{
+  WHATCallback message[NUM_MAX_MESSAGE_REGISTRATIONS];  // incoming messages will be compared to this list of messages.
+  uint8_t index = 0;        // tracks the number of entries used in the message array.  "RegisterWHATMessage" increments this value.
+  uint8_t reusableSlot = 0xFF; // One registry slot whose MessageID/callback is swapped as needed (was gblRegistry.reusableSlot, in z_WHAT.ino).
+};
+WHAT_Registry gblRegistry;
 
 // 888888888888888888 Prototypes 88888888888888888888888888
 // Public:

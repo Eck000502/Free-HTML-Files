@@ -52,15 +52,20 @@ Then as additional devices are added, control can be re-arranged or expanded.
 #define _WHAT_NEW_Link_TIME_DELAY 60000 // Only stay in new child mode for 30 seconds if not accepted earlier.
 #define _WHAT_LINK_INPUT_UPDATE_RATE 50   // minimum milliseconds between message
 
-uint8_t _InputPinForLink[NUM_INPUTS];   // Pin number
-uint8_t _InputValueForLink[NUM_INPUTS]; // Value read for the given pin.
-uint8_t _OutputPinForLink[NUM_OUTPUTS]; // First index is the pin number, the second is the value.
-uint8_t _OutputValueForLink[NUM_OUTPUTS]; // First index is the pin number, the second is the value.
+// Group: WHAT_LinkIO (instance gblLinkIO) - FullLink's input/output pin and value tables.
+struct WHAT_LinkIO
+{
+  uint8_t inputPin[NUM_INPUTS];     // Pin number
+  uint8_t inputValue[NUM_INPUTS];   // Value read for the given pin.
+  uint8_t outputPin[NUM_OUTPUTS];   // Pin number
+  uint8_t outputValue[NUM_OUTPUTS]; // Value for the given pin.
+};
+WHAT_LinkIO gblLinkIO;
 
 // 888888888888888888 Prototypes 88888888888888888888888888
 // Public:
 //void  mrf.init(void);
-//void Mrf24j_begin (uint16_t myPANID, uint16_t mySourceAddress);
+//void Mrf24j_begin (uint16_t gblNetwork.panID, uint16_t mySourceAddress);
 
 // Private
 
@@ -82,23 +87,35 @@ enum WHAT_LINK_State{
   WHAT_LINK_COMPLETED
 };
 
-WHAT_LINK_State _WHAT_LINK_State = WHAT_NO_LINK;
-uint16_t  _WHAT_Already_Linked = 0xFF;
-uint16_t  WHATLinks[numWHATLinks];
+// Group: WHAT_Link (instance gblLink) - FullLink state.
+struct WHAT_Link
+{
+  WHAT_LINK_State state = WHAT_NO_LINK;
+  uint16_t alreadyLinked = 0xFF;
+  uint16_t links[numWHATLinks];
+  uint8_t commandedOutputs = 0;  // Captures the payload value of a received input message. (was gblLink.commandedOutputs)
+  uint8_t reusableSlot = 0xFF;   // Registered once, then the callback can be changed. (was gblLink.reusableSlot)
+};
+WHAT_Link gblLink;
 //bool * _network_button = &WHAT_NetworkButton;     // This will mirror the button styate in the main program.
-//WHAT_State * _network_state = &_WHAT_network_State;    // This will mirror the network light words in the main program.
-//WHAT_LedColor * _network_light_color = &_WHAT_network_StateColor;  // This will mirror the Light color to the main program.
+//WHAT_State * _network_state = &gblMailbox.networkState;    // This will mirror the network light words in the main program.
+//WHAT_LedColor * _network_light_color = &gblMailbox.networkStateColor;  // This will mirror the Light color to the main program.
 
 // ***************************
 // TOC Global Variables
-uint8_t WHAT_Reusable_Message2 = 0xFF; //This is registered once, then the callback can be changed
-uint8_t COMMANDED_OUTPUTS = 0;         // This is used to capture the payload value of a recieved input message.
+// (gblLink.reusableSlot and gblLink.commandedOutputs moved into gblLink - Nov 2026 rename pass.)
 
-bool f_Rx_REQUEST_FULL_LINK_03 = false;   // Make sure previously set flag is cleared.  
-bool f_Rx_ACCEPT_FULL_LINK_03 = false;    // Make sure previously set flag is cleared.  
-bool f_Rx_REJECT_FULL_LINK_03 = false;    // Make sure previously set flag is cleared.  
-bool f_Rx_REMOVE_FULL_LINK_03 = false;    // Make sure previously set flag is cleared.  
-bool f_Rx_CMD_DIG01_04 = false;           // Make sure previously set flag is cleared.  
+// Group: WHAT_LinkRxFlags (instance gblLinkRxFlags) - FullLink's "a message arrived" flags.
+// Member names are the command names from z_WHAT_Command.h, same rule as gblRxFlags.
+struct WHAT_LinkRxFlags
+{
+  bool f_REQUEST_FULL_LINK_03 = false;
+  bool f_ACCEPT_FULL_LINK_03 = false;
+  bool f_REJECT_FULL_LINK_03 = false;
+  bool f_REMOVE_FULL_LINK_03 = false;
+  bool f_CMD_DIG01_04 = false;
+};
+WHAT_LinkRxFlags gblLinkRxFlags;
 
 
 

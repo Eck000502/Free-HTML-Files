@@ -204,36 +204,49 @@
 
 // These are variables that can be (carefully) re-used within this program
 // This is done to reduce the amount of dynamic memory used.
-double WHAT_Reusable_Timer1 = millis();
-double WHAT_Reusable_Timer2 = millis();
-uint8_t WHAT_Reusable_8t_1  = 0xFF;
-uint16_t WHAT_Reusable_16t_1  = 0xFFFF;
-uint16_t WHAT_Reusable_16t_2  = 0xFFFF;
-uint16_t WHAT_Reusable_16t_3  = 0xFFFF;
-uint16_t WHAT_Reusable_16t_4  = 0xFFFF;
+// Group: WHAT_Scratch (instance gblScratch) - reusable temporaries, shared to save dynamic memory.
+// RULE: a scratch value must never be expected to survive a call to another function that uses scratch.
+struct WHAT_Scratch
+{
+  double timer1 = millis();
+  double timer2 = millis();
+  uint8_t u8_1  = 0xFF;
+  uint16_t u16_1  = 0xFFFF;
+  uint16_t u16_2  = 0xFFFF;
+  uint16_t u16_3  = 0xFFFF;
+  uint16_t u16_4  = 0xFFFF;
+};
+WHAT_Scratch gblScratch;
 
-uint8_t WHAT_Reusable_Message1 = 0xFF; //This is registered once, then the callback can be changed
+// (gblRegistry.reusableSlot moved into gblRegistry.reusableSlot, in z_WHAT.h - Nov 2026 rename pass.)
+//uint8_t gblRegistry.reusableSlot = 0xFF; //This is registered once, then the callback can be changed
 //When connecting to the network, several messages are only valid
-//uint8_t WHAT_Reusable_Message2 = 0xFF; //at certian times, so this can be changed to avoid each of them taking
+//uint8_t gblLink.reusableSlot = 0xFF; //at certian times, so this can be changed to avoid each of them taking
 //an entry in the recieved message table.  All of the 1-time, 1-at-a-time use messages
 //can be assigned to this same message table entry.
 
-// Rx Message flags
-bool f_ResetToPremiee = false;                // Holding the network button at power on activates this.
-bool f_Rx_REQUEST_JOIN_NETWORK_03 = false;    // Preemie asking to join network
-bool f_Rx_NETWORK_ALERT_PREEMIE_03 = false;   // Notice from another device that a preemie is trying to join
-bool f_Rx_CHOOSE_NETWORK_05  = false;         // Notice to other networks that a network has accepted this preemie
-bool f_Rx_NETWORK_ALLOW_PREEMIE_04 = false;   // Notice to this preemie that it may accept its parent.
-bool f_Rx_PROPOSE_CHILD_NUMBER_05 = false;    // Preemie asking the network for a child number
-bool f_Rx_ACCEPT_PARENT_06 = false;
-bool f_Rx_NETWORK_JOIN_COMPLETE_03 = false;   // Preeemie accepted a proposed parent 
-bool f_Rx_NETWORK_JOIN_ABORT_03 = false;      // User abort of the acceptance process.
-bool f_Rx_REQUEST_ACK_03 = false;             // Send out a request for any existing network with my proposed PANID to respond.
-bool f_Rx_REPLY_ACKNOWLEDGE_03 = false;       // While a new network is forming, requests existing network to claim its PANID
+// Group: WHAT_RxFlags (instance gblRxFlags) - "a message arrived" flags.
+// Member names are the command names from z_WHAT_Command.h (the f_Rx_ prefix is dropped:
+// the group name already says these are receive flags - Gary, Nov 2026).
+struct WHAT_RxFlags
+{
+  bool f_RESET_TO_PREEMIE = false;          // Holding the network button at power on activates this. (was gblRxFlags.f_RESET_TO_PREEMIE)
+  bool f_REQUEST_JOIN_NETWORK_03 = false;   // Preemie asking to join network
+  bool f_NETWORK_ALERT_PREEMIE_03 = false;  // Notice from another device that a preemie is trying to join
+  bool f_CHOOSE_NETWORK_05  = false;        // Notice to other networks that a network has accepted this preemie
+  bool f_NETWORK_ALLOW_PREEMIE_04 = false;  // Notice to this preemie that it may accept its parent.
+  bool f_PROPOSE_CHILD_NUMBER_05 = false;   // Preemie asking the network for a child number
+  bool f_ACCEPT_PARENT_06 = false;
+  bool f_NETWORK_JOIN_COMPLETE_03 = false;  // Preeemie accepted a proposed parent 
+  bool f_NETWORK_JOIN_ABORT_03 = false;     // User abort of the acceptance process.
+  bool f_REQUEST_ACK_03 = false;            // Send out a request for any existing network with my proposed PANID to respond.
+  bool f_REPLY_ACKNOWLEDGE_03 = false;      // While a new network is forming, requests existing network to claim its PANID
+};
+WHAT_RxFlags gblRxFlags;
 
 // TOC SETUP
 void WHAT_begin(void)
-//void WHAT_begin(bool & _WHAT_NetworkButton, WHAT_State & _WHAT_network_State, WHAT_LedColor & _WHAT_network_StateColor)
+//void WHAT_begin(bool & gblMailbox.networkButton, WHAT_State & gblMailbox.networkState, WHAT_LedColor & gblMailbox.networkStateColor)
 {
   // ****************   Setup for WHAT   ***************************/
   // Register common ZigBee recieved messages
@@ -245,7 +258,7 @@ void WHAT_begin(void)
   //            //   Bits:  15-14   13-12  11-10  9-7    6      5    4        3      2-0
   //            //        SourceMode RES DestMode RES IntraPAN Ack pending Security FrameType        Res
   //WHAT_Tx_Packet.sequence_number = 0;
-  //WHAT_Tx_Packet.pan_id = myPANID;
+  //WHAT_Tx_Packet.pan_id = gblNetwork.panID;
   //WHAT_Tx_Packet.destination = 0xFFFF;
   //WHAT_Tx_Packet.sourceaddress = mySourceAddress;
 
@@ -254,9 +267,9 @@ void WHAT_begin(void)
   //digitalWrite(NETWORK_LIGHT,LOW); // Lights are active HIGH
   //pinMode(NETWORK_BUTTON,INPUT_PULLUP);
   //Setup_Button_Light(); // This is IF the button/light is installed.
-  //_WHAT_network_State = _WHAT_network_State;   // Main application is responsible for monitoring the network button and light (in case of LCD displays, etc...)
-  //_WHAT_NetworkButton = _WHAT_NetworkButton; // Main application is responsible for monitoring the network button and light (in case of LCD displays, etc...)
-  //_WHAT_network_StateColor = _WHAT_network_StateColor;
+  //gblMailbox.networkState = gblMailbox.networkState;   // Main application is responsible for monitoring the network button and light (in case of LCD displays, etc...)
+  //gblMailbox.networkButton = gblMailbox.networkButton; // Main application is responsible for monitoring the network button and light (in case of LCD displays, etc...)
+  //gblMailbox.networkStateColor = gblMailbox.networkStateColor;
   //_Loop_WHAT_NetworkButton_Light = Loop_WHAT_NetworkButton_Light; // Function pointer for lamp updates.
   //pinMode(b_RED_RGB_PIN,OUTPUT);        // Main application is responsible for additional lights, if desired.
   //pinMode(b_GREEN_RGB_PIN,OUTPUT);
@@ -266,21 +279,21 @@ void WHAT_begin(void)
   //digitalWrite(b_BLUE_RGB_PIN,HIGH);
   WHAT_EEPROM();  // restore any WHAT parameters from EEPROM (Source address/PANID, etc...)
 
-  _WHAT_network_State = WHAT_STARTUP;
-  Serial.print(F("Network State set to 'WHAT_STARTUP' "));Serial.println(_WHAT_network_State,DEC);
+  gblMailbox.networkState = WHAT_STARTUP;
+  Serial.print(F("Network State set to 'WHAT_STARTUP' "));Serial.println(gblMailbox.networkState,DEC);
 
-  Serial.println(F("PANID\tmySourceAddress\tmyParentAddress\tmyLatchkey\t_WHAT_network_State"));
-  Serial.print(myPANID,HEX);Serial.print(" \t");Serial.print(mySourceAddress,HEX);Serial.print(" \t\t");Serial.print(myParentAddress,HEX);Serial.print(" \t");Serial.print(myLatchKeyNumber,HEX);Serial.print(" \t\t\t");Serial.println(_WHAT_network_State,HEX);
+  Serial.println(F("PANID\tmySourceAddress\tgblNetwork.parentAddress\tmyLatchkey\tgblMailbox.networkState"));
+  Serial.print(gblNetwork.panID,HEX);Serial.print(" \t");Serial.print(mySourceAddress,HEX);Serial.print(" \t\t");Serial.print(gblNetwork.parentAddress,HEX);Serial.print(" \t");Serial.print(myLatchKeyNumber,HEX);Serial.print(" \t\t\t");Serial.println(gblMailbox.networkState,HEX);
   #ifdef __WHAT_FULLLINK_h
     Serial.print(F("Links: 0x"));
     for(uint8_t _i=0; _i<numWHATLinks; _i++)
     {
-      Serial.print(WHATLinks[_i],HEX);Serial.print(" \t0x");
+      Serial.print(gblLink.links[_i],HEX);Serial.print(" \t0x");
     }
   #endif
   Serial.println(" ");
   mrf.init();
-  Mrf24j_begin (myPANID, mySourceAddress);
+  Mrf24j_begin (gblNetwork.panID, mySourceAddress);
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 // TOC  Register WHAT messages for reception
   Serial.println(F("WHAT Auto-addressing enabled"));
@@ -292,21 +305,21 @@ void WHAT_begin(void)
    // Trying to make these as re-usable messages.
   //RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
   //RegisterWHATMessage (NETWORK_ALLOW_PREEMIE_04, &Rx_NETWORK_ALLOW_PREEMIE_04); // This is an entry that will not change.
-  WHAT_Reusable_Message1 = RegisterWHATMessage (0xFFFF, &holdingFunction); // This entry can be re-used during network adoption.
+  gblRegistry.reusableSlot = RegisterWHATMessage (0xFFFF, &holdingFunction); // This entry can be re-used during network adoption.
       #ifdef RX_MONITOR
-      Serial.print(F("WHAT_Reusable_Message1 :"));Serial.println(WHAT_Reusable_Message1);
+      Serial.print(F("gblRegistry.reusableSlot :"));Serial.println(gblRegistry.reusableSlot);
       #endif
-  _WHAT_NetworkButton = LOW;
-   _WHAT_network_State = WHAT_STARTUP;
-   _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+  gblMailbox.networkButton = LOW;
+   gblMailbox.networkState = WHAT_STARTUP;
+   gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
 
   // Check to see if this device has any children.
-  f_hasChildren = false;
+  gblNetwork.hasChildren = false;
   for(uint8_t _i=0;_i<ChildMaxIndex;_i++)
   {
-    if(myChildren[_i].ChildAddress<0xFFFF)
+    if(gblNetwork.children[_i].ChildAddress<0xFFFF)
     {
-      f_hasChildren = true;
+      gblNetwork.hasChildren = true;
       #ifdef RX_MONITOR
       Serial.print(F("Has Children:"));Serial.println(_i);
       #endif
@@ -339,44 +352,44 @@ void Loop_WHAT(void)
 void RX_WHAT (void)
 {
   #define NumBufferMessages 8 
-  static uint8_t _RxbufferIndex = 0;
-  if (WHAT_Buffer_RX(WHAT_Rx_Packet,_RxbufferIndex) )
+  static uint8_t _st_RxbufferIndex = 0;
+  if (WHAT_Buffer_RX(gblQueues.rxPacket,_st_RxbufferIndex) )
   { //TOC  WHAT_Buffer_RX returns TRUE if there is a new message in the recieve buffer.
     Serial.print("\nRx WHAT");
 
        #ifdef DX_ONLY
-        Serial.print("\nGBL_rx_index: ");Serial.print(GBL_rx_index);
-        Serial.print("\t_RxbufferIndex: ");Serial.print(_RxbufferIndex);
+        Serial.print("\nGBL_rx_index: ");Serial.print(gblRadio.rxIndex);
+        Serial.print("\t_RxbufferIndex: ");Serial.print(_st_RxbufferIndex);
         Serial.println(F("\nLength\tCONTROL\tRx pan_id\tdestination\tsource"));
-        Serial.print(WHAT_Rx_Packet.frame_length,DEC);Serial.print("\t  ");
-        Serial.print(WHAT_Rx_Packet.frame_control,HEX);Serial.print("\t  ");
-        Serial.print(WHAT_Rx_Packet.pan_id,HEX);Serial.print("\t\t\t  ");
-        Serial.print(WHAT_Rx_Packet.destination,HEX);Serial.print("\t  ");
-        Serial.println(WHAT_Rx_Packet.sourceaddress,HEX);
+        Serial.print(gblQueues.rxPacket.frame_length,DEC);Serial.print("\t  ");
+        Serial.print(gblQueues.rxPacket.frame_control,HEX);Serial.print("\t  ");
+        Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print("\t\t\t  ");
+        Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print("\t  ");
+        Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
     // read the payload
         Serial.print(F("Adr:"));Serial.print(WHAT_ADR_PAYLOADSTART,HEX);Serial.print(F(":"));
-        uint8_t _payloadSize = WHAT_Rx_Packet.payload[0];
+        uint8_t _payloadSize = gblQueues.rxPacket.payload[0];
         Serial.print(F("\t_payloadSize:"));Serial.println(_payloadSize);
         for (uint8_t _i = 0; _i <= _payloadSize; _i++) 
         {
-            //WHAT_Rx_Packet.payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
-              Serial.print(F("0x"));Serial.print(WHAT_Rx_Packet.payload[_i],HEX);Serial.print(F(", "));
+            //gblQueues.rxPacket.payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
+              Serial.print(F("0x"));Serial.print(gblQueues.rxPacket.payload[_i],HEX);Serial.print(F(", "));
         }
-        Serial.print("FCS: ");Serial.print(WHAT_Rx_Packet.payload[_payloadSize+2],HEX);Serial.print(WHAT_Rx_Packet.payload[_payloadSize+1],HEX);;
-        Serial.print("\tlqi: ");Serial.print(WHAT_Rx_Packet.lqi,HEX);
-        Serial.print("\trssi: ");Serial.println(WHAT_Rx_Packet.rssi,HEX);
+        Serial.print("FCS: ");Serial.print(gblQueues.rxPacket.payload[_payloadSize+2],HEX);Serial.print(gblQueues.rxPacket.payload[_payloadSize+1],HEX);;
+        Serial.print("\tlqi: ");Serial.print(gblQueues.rxPacket.lqi,HEX);
+        Serial.print("\trssi: ");Serial.println(gblQueues.rxPacket.rssi,HEX);
         Serial.print("\n");
 
       #endif
 // TOC Indicate the network is alive 
-   if((WHAT_Rx_Packet.pan_id == myPANID) | (WHAT_Rx_Packet.pan_id == GLOBAL_PANID))
+   if((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
     {
         gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // This allows an indication of any other devices on the network.
         f_gbl_t_NetworkAlive = true;      // Flag that no other network nodes have been seen
     }
 
 // TOC Identify the message type and act accordingly
-    switch (WHAT_Rx_Packet.frame_control & 0x07)
+    switch (gblQueues.rxPacket.frame_control & 0x07)
     {
 // TOC Rx Beacon message
       case MASK_FC_BEACON: //this is a beacon frame.  These are not currently supported.
@@ -387,23 +400,23 @@ void RX_WHAT (void)
       case MASK_FC_DATA: //this is a data frame.  Extract and use the data.
         Serial.println(F("Data"));
         //Serial.print("MRF_INTSTAT : ");Serial.println(_mrf_intstat);
-        //WHAT_Rx_Packet.packet_length = Mrf24j_Read(WHAT_ADR_PACKETLENGTH);
+        //gblQueues.rxPacket.packet_length = Mrf24j_Read(WHAT_ADR_PACKETLENGTH);
         //Serial.print("Address "); Serial.print(WHAT_ADR_RxSTART,HEX); Serial.print(" (length) : ");Serial.println(_length);
-        Serial.print("pan_id : 0x"); Serial.println(WHAT_Rx_Packet.pan_id,HEX);
-        Serial.print("myPANID : 0x"); Serial.println(myPANID,HEX);
+        Serial.print("pan_id : 0x"); Serial.println(gblQueues.rxPacket.pan_id,HEX);
+        Serial.print("gblNetwork.panID : 0x"); Serial.println(gblNetwork.panID,HEX);
         
-        Serial.print("destination : 0x"); Serial.println(WHAT_Rx_Packet.destination,HEX);
-        Serial.print("sourceaddress :"); Serial.println(WHAT_Rx_Packet.sourceaddress,HEX);
-        //_length= WHAT_Rx_Packet.frame_length - _ZIGBEE_HEADER_LENGTH;
+        Serial.print("destination : 0x"); Serial.println(gblQueues.rxPacket.destination,HEX);
+        Serial.print("sourceaddress :"); Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
+        //_length= gblQueues.rxPacket.frame_length - _ZIGBEE_HEADER_LENGTH;
           //Serial.println ("A message Arrived. ");
-          if ((WHAT_Rx_Packet.pan_id == myPANID) | (WHAT_Rx_Packet.pan_id == GLOBAL_PANID))
+          if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
           { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
             #ifdef DX_ONLY
                 Serial.println(F("Data PAN ID Match"));
             #endif
-            //Serial.print("Rx Destination: 0x");Serial.println(WHAT_Rx_Packet.destination,HEX);
+            //Serial.print("Rx Destination: 0x");Serial.println(gblQueues.rxPacket.destination,HEX);
             //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
-            if ((WHAT_Rx_Packet.destination == mySourceAddress) | (WHAT_Rx_Packet.pan_id == GLOBAL_DESTINATION))
+            if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.pan_id == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
               #ifdef DX_ONLY
                       Serial.println("Destination Match");
@@ -421,8 +434,8 @@ void RX_WHAT (void)
       case MASK_FC_MAC_CMD: // MAC command... Used in network creation.
         Serial.println(F("MAC Command"));
         #ifdef RX_MONITOR
-          //Serial.println(F("PANID DESTINATION SOURCE f_hasChildren"));
-          //Serial.print(WHAT_Rx_Packet.pan_id,HEX);Serial.print(" ");Serial.print(WHAT_Rx_Packet.destination,HEX);Serial.print(" ");Serial.print(f,HEX);Serial.print(" ");Serial.println(f_hasChildren);
+          //Serial.println(F("PANID DESTINATION SOURCE gblNetwork.hasChildren"));
+          //Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print(" ");Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print(" ");Serial.print(f,HEX);Serial.print(" ");Serial.println(gblNetwork.hasChildren);
         #endif
         if(mySourceAddress == 0xFFFF)
         {
@@ -431,12 +444,12 @@ void RX_WHAT (void)
         else
         {
           //Once this device is part of a network, establish more message acceptance critera
-          if ((WHAT_Rx_Packet.pan_id == myPANID) | (WHAT_Rx_Packet.pan_id == GLOBAL_PANID))
+          if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
           { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
-            Serial.print(F("match: WHAT_Rx_Packet.pan_id:0X"));Serial.println(WHAT_Rx_Packet.pan_id,HEX);
-            //Serial.print("Rx Destination: 0x");Serial.println(WHAT_Rx_Packet.destination,HEX);
+            Serial.print(F("match: gblQueues.rxPacket.pan_id:0X"));Serial.println(gblQueues.rxPacket.pan_id,HEX);
+            //Serial.print("Rx Destination: 0x");Serial.println(gblQueues.rxPacket.destination,HEX);
             //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
-            if ((WHAT_Rx_Packet.destination == mySourceAddress) | (WHAT_Rx_Packet.destination == GLOBAL_DESTINATION))
+            if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.destination == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
               Serial.println("Destination Match");
               WHAT_PayloadHandler();
@@ -444,13 +457,13 @@ void RX_WHAT (void)
           }
           else
           {
-            Serial.print("No Destination Match: ");Serial.println(WHAT_Rx_Packet.pan_id);
+            Serial.print("No Destination Match: ");Serial.println(gblQueues.rxPacket.pan_id);
           }
         }
         break;
 
       default:
-        Serial.print(F("Reserved recieved message frame: 0x"));Serial.println(WHAT_Rx_Packet.frame_control & 0x07);
+        Serial.print(F("Reserved recieved message frame: 0x"));Serial.println(gblQueues.rxPacket.frame_control & 0x07);
         break;
     }// End Switch
 // TOC Re-Transmit message
@@ -486,12 +499,12 @@ void RX_WHAT (void)
           - Combining these, always forward messages with children's source address, destination address, OR 
                 global destination from THIS DEVICE's parent.         
  */
-     if ((WHAT_Rx_Packet.pan_id == myPANID) & (WHAT_Rx_Packet.destination != mySourceAddress) & f_hasChildren) 
+     if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) & (gblQueues.rxPacket.destination != mySourceAddress) & gblNetwork.hasChildren) 
      {  // Only consider re-transmit if the PANID matches, THIS device was not targeted, and this device has children.
         bool _retransmit_message = false;
-        if(WHAT_Rx_Packet.destination == GLOBAL_DESTINATION) 
+        if(gblQueues.rxPacket.destination == GLOBAL_DESTINATION) 
         {
-           if(WHAT_Rx_Packet.sourceaddress == myParentAddress) _retransmit_message = true;
+           if(gblQueues.rxPacket.sourceaddress == gblNetwork.parentAddress) _retransmit_message = true;
         }
         if(!_retransmit_message)// If already transmitting, no need to evaluate the source and destination...
         {   // source or destination of grand children and great grand children also need be considered....
@@ -500,17 +513,17 @@ void RX_WHAT (void)
             uint16_t myMask = ( ((mySourceAddress > 0x00) * 0x0F) | ((mySourceAddress > 0x0F) * 0x0FF) | ((mySourceAddress > 0xFF) * 0xFFF) );
             Serial.print("Mask:0x");Serial.println(myMask);
              //Apply the mask to the incoming source address to verify that the lineage matches this device before sending this message.
-            uint16_t _temporary = WHAT_Rx_Packet.sourceaddress & myMask;
+            uint16_t _temporary = gblQueues.rxPacket.sourceaddress & myMask;
             if(_temporary == mySourceAddress) _retransmit_message = true; //This message came FROM one of my (grand)children. 
-            _temporary = WHAT_Rx_Packet.destination & myMask;
+            _temporary = gblQueues.rxPacket.destination & myMask;
             if(_temporary == mySourceAddress) _retransmit_message = true; //This message is going TO one of my (grand)children. 
         }
         if(!_retransmit_message)// If already transmitting, no need to evaluate the children...
         {// Not re-transmitting.  see if any of the children are targeted.
           for (uint8_t _i=1;_i<ChildMaxIndex;_i++)
           { //see if the arriving souce address or destination address matches any of the children of this device. 
-            if(WHAT_Rx_Packet.destination == myChildren[_i].ChildAddress) _retransmit_message = true;
-            if(WHAT_Rx_Packet.sourceaddress == myChildren[_i].ChildAddress) _retransmit_message = true;
+            if(gblQueues.rxPacket.destination == gblNetwork.children[_i].ChildAddress) _retransmit_message = true;
+            if(gblQueues.rxPacket.sourceaddress == gblNetwork.children[_i].ChildAddress) _retransmit_message = true;
           }
         }
         if(_retransmit_message)
@@ -519,7 +532,7 @@ void RX_WHAT (void)
             // traveling inbound or outbound, but I think the use of the source and destination
             // eliminate the need for that.  That might allow twice as many source addresses to be used.
             WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
-            _WHAT_Tx_Packet = WHAT_Rx_Packet; // Make it the same as the incoming message.
+            _WHAT_Tx_Packet = gblQueues.rxPacket; // Make it the same as the incoming message.
             #ifdef RX_MONITOR
             Serial.println("Retransmitting");
             #endif
@@ -528,16 +541,16 @@ void RX_WHAT (void)
     #ifdef RX_MONITOR
     else
     {
-      //Serial.println(F("Not Retransmitted.  PANID DESTINATION SOURCE f_hasChildren"));
-      //Serial.print(WHAT_Rx_Packet.pan_id,HEX);Serial.print(" ");Serial.print(WHAT_Rx_Packet.destination,HEX);Serial.print(" ");Serial.print(mySourceAddress,HEX);Serial.print(" ");Serial.println(f_hasChildren);
+      //Serial.println(F("Not Retransmitted.  PANID DESTINATION SOURCE gblNetwork.hasChildren"));
+      //Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print(" ");Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print(" ");Serial.print(mySourceAddress,HEX);Serial.print(" ");Serial.println(gblNetwork.hasChildren);
     }
     #endif  // RX_MONITOR
   //  #endif  // RETRANSMIT
 
-    _RxbufferIndex++;
+    _st_RxbufferIndex++;
     // FIX: Enforce proper zero-indexed circular buffer bounds
-    if(_RxbufferIndex >= RX_BUFFER_DEPTH ){ 
-        _RxbufferIndex = 0; 
+    if(_st_RxbufferIndex >= RX_BUFFER_DEPTH ){ 
+        _st_RxbufferIndex = 0; 
     }
   }// End if a message has arrived
 }// End Function
@@ -546,37 +559,37 @@ void RX_WHAT (void)
 void WHAT_PayloadHandler(void)
 {// The PANID, SOURCE and DESTINATION have been verified that this routine
  //   is permitted to sift through the payload and act upon the MIDs
- //   this works on the global variable WHAT_Rx_Packet that is buffered seperately.
+ //   this works on the global variable gblQueues.rxPacket that is buffered seperately.
  //   MIDs are compared to the registered list and when matches are found, callbacks are executed.
  
-     uint8_t _length = WHAT_Rx_Packet.payload[0];  // Total payload length.
+     uint8_t _length = gblQueues.rxPacket.payload[0];  // Total payload length.
     //Serial.print("Rx payload size:");Serial.println(_length);
     uint8_t _index = 1;
     while (_index < (_length - 1))
     { // Read the first command from the packet.
-      uint8_t _NumBytes = WHAT_Rx_Packet.payload[_index];  // each command starts with its total data length.
+      uint8_t _NumBytes = gblQueues.rxPacket.payload[_index];  // each command starts with its total data length.
       //Serial.print("_NumBytes:");Serial.println(_NumBytes);
-      //uint16_t _thisMessageID = (WHAT_Rx_Packet.payload[_index + 1] *0x100) + WHAT_Rx_Packet.payload[_index + 2]; // Message IDs uniquely identify message contents
-      uint16_t _thisMessageID = WHAT_Rx_Packet.payload[_index + 1]; // Message IDs uniquely identify message contents
+      //uint16_t _thisMessageID = (gblQueues.rxPacket.payload[_index + 1] *0x100) + gblQueues.rxPacket.payload[_index + 2]; // Message IDs uniquely identify message contents
+      uint16_t _thisMessageID = gblQueues.rxPacket.payload[_index + 1]; // Message IDs uniquely identify message contents
       if (_thisMessageID > 0xEF) {
-        _thisMessageID = _thisMessageID * 0x100 + WHAT_Rx_Packet.payload[_index + 2];
+        _thisMessageID = _thisMessageID * 0x100 + gblQueues.rxPacket.payload[_index + 2];
       }
-      for (uint8_t _i = 0; _i <= WHATRxIndex; _i++)
+      for (uint8_t _i = 0; _i <= gblRegistry.index; _i++)
       { // Search the registered messages and see if they want this messageID.
-        if ( WHATRxMessage[_i]. MessageID ==  _thisMessageID)
+        if ( gblRegistry.message[_i]. MessageID ==  _thisMessageID)
         {
          #ifdef DX_ONLY
           Serial.print(F("MID Match. Index:"));Serial.print(_i); Serial.print("MID:");Serial.println(_thisMessageID, HEX);
-          Serial.print(F("_WHAT_network_State:")); Serial.println(_WHAT_network_State, DEC);
+          Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
           #endif  
-         (* WHATRxMessage[_i].callback)(WHAT_Rx_Packet, _index);
+         (* gblRegistry.message[_i].callback)(gblQueues.rxPacket, _index);
          //TOC THIS is where the recieved message activates the callback function.
 
         }
         #ifdef DX_ONLY
         else
         {
-          Serial.print(_thisMessageID,HEX);Serial.print("<>");Serial.println(WHATRxMessage[_i]. MessageID,HEX);
+          Serial.print(_thisMessageID,HEX);Serial.print("<>");Serial.println(gblRegistry.message[_i]. MessageID,HEX);
         }
         #endif
       }// End search registered messages for a match.
@@ -608,12 +621,12 @@ void  WHATHouseKeeping(void)
 // TOC  Register WHAT messages for reception
 uint8_t RegisterWHATMessage (uint16_t _MessageID, void(*callback)(WHAT_Packet , uint8_t))
 {
-  if(WHATRxIndex>=NUM_MAX_MESSAGE_REGISTRATIONS)
+  if(gblRegistry.index>=NUM_MAX_MESSAGE_REGISTRATIONS)
   {Serial.println(F("Message Reception buffer Overflow.  Some messages may not be recieved."));}
-  uint8_t ret = WHATRxIndex; // this is the table entry index for THIS message.  This allows entries to be changed.
-  WHATRxMessage[WHATRxIndex].MessageID = _MessageID;
-  WHATRxMessage[WHATRxIndex].callback = callback;    // Function to be called if this message arrives.
-  WHATRxIndex++;
+  uint8_t ret = gblRegistry.index; // this is the table entry index for THIS message.  This allows entries to be changed.
+  gblRegistry.message[gblRegistry.index].MessageID = _MessageID;
+  gblRegistry.message[gblRegistry.index].callback = callback;    // Function to be called if this message arrives.
+  gblRegistry.index++;
   return ret;
 }
 
@@ -622,13 +635,13 @@ uint8_t RegisterWHATMessage (uint16_t _MessageID, void(*callback)(WHAT_Packet , 
 void WHAT_TransmitPacket (WHAT_Packet _WHAT_Tx_Packet)
 {
   // the transmit packet is placed in the buffer to be transmitted.
-      TxQueue[TxQueue_PendIndex] = _WHAT_Tx_Packet;
-      TxQueue_PendIndex++; 
-      if(TxQueue_PendIndex >= TX_BUFFER_DEPTH) 
+      gblQueues.tx[gblQueues.txPendIndex] = _WHAT_Tx_Packet;
+      gblQueues.txPendIndex++; 
+      if(gblQueues.txPendIndex >= TX_BUFFER_DEPTH) 
       {
-        TxQueue_PendIndex=0;
+        gblQueues.txPendIndex=0;
       }
-      //Serial.println(TxQueue_PendIndex);
+      //Serial.println(gblQueues.txPendIndex);
       //Tx_What_Que(); // go ahead and try to send it now.
 
   //Mrf24j_Write(MRF24J_TXNCON, MRF24J_TXNTRIG);  // Transmit the packet
@@ -665,42 +678,42 @@ void  WHAT_EEPROM(void)
     Serial.println(F("Restoring from EEPROM"));
     // Values have already been saved and updated in EEPROM.
     // Retrieve the EEPROM values to be used instead of default values
-    myPANID = EEPROM.read(EEPROM_myPANIDL_LOCATION) + (EEPROM.read(EEPROM_myPANIDH_LOCATION) * 0x100);
-    //Serial.print(F("EE read myPANID:0x"));Serial.println(myPANID,HEX);
+    gblNetwork.panID = EEPROM.read(EEPROM_myPANIDL_LOCATION) + (EEPROM.read(EEPROM_myPANIDH_LOCATION) * 0x100);
+    //Serial.print(F("EE read gblNetwork.panID:0x"));Serial.println(gblNetwork.panID,HEX);
     mySourceAddress = EEPROM.read(EEPROM_mySourceAddressL_LOCATION) + (EEPROM.read(EEPROM_mySourceAddressH_LOCATION) * 0x100);
     //Serial.print(F("EE read mySourceAddress:0x"));Serial.println(mySourceAddress,HEX);
-    myParentAddress = EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressH_LOCATION) * 0x100);
-    //Serial.print(F("EE read myParentAddress:0x"));Serial.println(myParentAddress,HEX);
+    gblNetwork.parentAddress = EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressH_LOCATION) * 0x100);
+    //Serial.print(F("EE read gblNetwork.parentAddress:0x"));Serial.println(gblNetwork.parentAddress,HEX);
     myLatchKeyNumber = EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + (EEPROM.read(EEPROM_myLatchKeyNumberH_LOCATION) * 0x100);
     //Serial.print(F("EE read myLatchKeyNumber:0x"));Serial.println(myLatchKeyNumber,HEX);
       /* EEPROM.get( eeAddress, f ) for TEENSY!!!! */ 
       /* but this is listed in another example   value = EEPROM.read(address);  */
   
-    _WHAT_network_State = (WHAT_State)EEPROM.read(EEPROM_preemie_State_LOCATION);
+    gblMailbox.networkState = (WHAT_State)EEPROM.read(EEPROM_preemie_State_LOCATION);
     //uint8_t temp = EEPROM.read(EEPROM_preemie_State_LOCATION);
-    //_WHAT_network_State = (en_preemie_states)(temp);
+    //gblMailbox.networkState = (en_preemie_states)(temp);
 
 #ifdef __WHAT_FULLLINK_h
     // Retrieve link table.
     uint8_t _EEPROM_Link_Location = EEPROM_LINK_LOCATION;
     for(uint8_t _i=0;_i<numWHATLinks;_i++)
     {
-      WHATLinks[_i] = (EEPROM.read(_EEPROM_Link_Location++) + EEPROM.read(_EEPROM_Link_Location++) * 0x100);
+      gblLink.links[_i] = (EEPROM.read(_EEPROM_Link_Location++) + EEPROM.read(_EEPROM_Link_Location++) * 0x100);
       //#ifdef CHILD_MONITOR
-      //Serial.print(F("Link EEPROM READ. Adr: 0x"));Serial.print(_EEPROM_Link_Location,HEX);Serial.print(F("\tLink EEPROM. Value: 0x"));Serial.println(WHATLinks[_i],HEX);
+      //Serial.print(F("Link EEPROM READ. Adr: 0x"));Serial.print(_EEPROM_Link_Location,HEX);Serial.print(F("\tLink EEPROM. Value: 0x"));Serial.println(gblLink.links[_i],HEX);
      // #endif
     }
 #endif
     
-    //Serial.print(F("EE read _WHAT_network_State:0x"));Serial.println(_WHAT_network_State);
+    //Serial.print(F("EE read gblMailbox.networkState:0x"));Serial.println(gblMailbox.networkState);
     // reload all child addresses:
     uint8_t _EEPROM_Child_Location = _EEPROM_Child_LOCATION;
     for(uint8_t _i=1;_i<ChildMaxIndex;_i++)
     { // recover index 0 to the end, even though index 0 actually is used for this device.
-      myChildren[_i].ChildAddress = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
-      myChildren[_i].LatchKeyValue = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
-      myChildren[_i].RelationshipType = EEPROM.read(_EEPROM_Child_Location++);
-      myChildren[_i].Security = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      gblNetwork.children[_i].ChildAddress = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      gblNetwork.children[_i].LatchKeyValue = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      gblNetwork.children[_i].RelationshipType = EEPROM.read(_EEPROM_Child_Location++);
+      gblNetwork.children[_i].Security = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
       //Serial.println(_EEPROM_Child_Location);
     }
   }
@@ -715,18 +728,18 @@ void  WHAT_EEPROM(void)
 void WHAT_StoreEEPROM(void)
 {
   Serial.print(F("Saving to EEPROM. Starting Address: 0x"));Serial.println(EEPROM_myPANIDL_LOCATION,HEX);
-  //Serial.print("myPANID:");Serial.print(myPANID,HEX);
-  EEPROM.write(EEPROM_myPANIDL_LOCATION, lowByte(myPANID)); EEPROM.write(EEPROM_myPANIDH_LOCATION, highByte(myPANID));
+  //Serial.print("gblNetwork.panID:");Serial.print(gblNetwork.panID,HEX);
+  EEPROM.write(EEPROM_myPANIDL_LOCATION, lowByte(gblNetwork.panID)); EEPROM.write(EEPROM_myPANIDH_LOCATION, highByte(gblNetwork.panID));
   //Serial.print("\t EEmyPANID:");Serial.print((EEPROM.read(EEPROM_myPANIDH_LOCATION)*0x100 + EEPROM.read(EEPROM_myPANIDL_LOCATION)),HEX);
   EEPROM.write(EEPROM_mySourceAddressL_LOCATION, lowByte(mySourceAddress)); EEPROM.write(EEPROM_mySourceAddressH_LOCATION, highByte(mySourceAddress));
   //Serial.print("mySourceAddress:");Serial.println(EEPROM.read(EEPROM_mySourceAddressL_LOCATION) + (EEPROM.read(EEPROM_mySourceAddressL_LOCATION) * 0x100),HEX);
-  EEPROM.write(EEPROM_myParentAddressL_LOCATION, lowByte(myParentAddress)); EEPROM.write(EEPROM_myParentAddressH_LOCATION, highByte(myParentAddress));
-  //Serial.print("myParentAddress:");Serial.println(EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressL_LOCATION) * 0x100),HEX);
+  EEPROM.write(EEPROM_myParentAddressL_LOCATION, lowByte(gblNetwork.parentAddress)); EEPROM.write(EEPROM_myParentAddressH_LOCATION, highByte(gblNetwork.parentAddress));
+  //Serial.print("gblNetwork.parentAddress:");Serial.println(EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressL_LOCATION) * 0x100),HEX);
   EEPROM.write(EEPROM_myLatchKeyNumberL_LOCATION, lowByte(myLatchKeyNumber)); EEPROM.write(EEPROM_myLatchKeyNumberH_LOCATION, highByte(myLatchKeyNumber));
   //Serial.print("myLatchKeyNumber:");Serial.println(EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + (EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) * 0x100),HEX);
 //  EEPROM.write(EEPROM_myChildIndex_LOCATION, myChildIndex);
-  EEPROM.write(EEPROM_preemie_State_LOCATION, _WHAT_network_State);
-  //Serial.print("_WHAT_network_State:");Serial.println(EEPROM.read(EEPROM_preemie_State_LOCATION),HEX);
+  EEPROM.write(EEPROM_preemie_State_LOCATION, gblMailbox.networkState);
+  //Serial.print("gblMailbox.networkState:");Serial.println(EEPROM.read(EEPROM_preemie_State_LOCATION),HEX);
   EEPROM.write(EEPROM_USED_FLAG_LOCATION, USED_EEPROM_VALUE);
   //Serial.print("Used:");Serial.println(EEPROM.read(EEPROM_USED_FLAG_LOCATION),HEX);
 
@@ -743,10 +756,10 @@ void _EEPORM_store_children (void)
   //Serial.print(F("_EEPROM_Child_Location. Adr: 0x"));Serial.println(_EEPROM_Child_Location,HEX);
   for(uint8_t _i=1;_i<16;_i++)
   { // Store index 0 to the end, even though index 0 actually is used for this device.
-    EEPROM.write(_EEPROM_Child_Location++, lowByte(myChildren[_i].ChildAddress)); EEPROM.write(_EEPROM_Child_Location++, highByte(myChildren[_i].ChildAddress));
-    EEPROM.write(_EEPROM_Child_Location++, lowByte(myChildren[_i].LatchKeyValue)); EEPROM.write(_EEPROM_Child_Location++, highByte(myChildren[_i].LatchKeyValue));
-    EEPROM.write(_EEPROM_Child_Location++, myChildren[_i].RelationshipType); 
-    EEPROM.write(_EEPROM_Child_Location++, lowByte(myChildren[_i].Security)); EEPROM.write(_EEPROM_Child_Location++, highByte(myChildren[_i].Security));
+    EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].ChildAddress)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].ChildAddress));
+    EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].LatchKeyValue)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].LatchKeyValue));
+    EEPROM.write(_EEPROM_Child_Location++, gblNetwork.children[_i].RelationshipType); 
+    EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].Security)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].Security));
     //Serial.println(_EEPROM_Child_Location,HEX);
    }
    Serial.print(F("End _EEPROM_Location. Adr: 0x"));Serial.println(_EEPROM_Child_Location,HEX);
@@ -761,7 +774,7 @@ void _EEPROM_store_links(void)
   //Serial.print(F("_EEPROM_Link_Location. Adr: 0x"));Serial.println(_EEPROM_Link_Location,HEX);
   for(uint8_t _i=0;_i<numWHATLinks;_i++)
   {
-  EEPROM.write(_EEPROM_Link_Location++, lowByte(WHATLinks[_i])); EEPROM.write(_EEPROM_Link_Location++, highByte(WHATLinks[_i]));
+  EEPROM.write(_EEPROM_Link_Location++, lowByte(gblLink.links[_i])); EEPROM.write(_EEPROM_Link_Location++, highByte(gblLink.links[_i]));
   }
 #endif
 }
@@ -783,28 +796,28 @@ void WHAT_Default_EEPROM_Values(void)
   WHAT_set_pan(0xFFFF);
   WHAT_set_SourceAddress(0xFFFF);
   mySourceAddress = 0xFFFF;
-  myParentAddress = 0xFFFF;
+  gblNetwork.parentAddress = 0xFFFF;
   myLatchKeyNumber = 0xFFFF;
-  myPANID = 0xFFFF;
-//  myChildIndex = 0;    // each child will be indexed into the "myChildren" array.
+  gblNetwork.panID = 0xFFFF;
+//  myChildIndex = 0;    // each child will be indexed into the "gblNetwork.children" array.
   mySecurity = 0xFFFF;
 #ifdef __WHAT_FULLLINK_h
   // Reset all link addressses.
   for(uint8_t _i=0;_i<numWHATLinks;_i++)
   {
-    WHATLinks[_i]=0xFFFF;
+    gblLink.links[_i]=0xFFFF;
     //#ifdef CHILD_MONITOR
-    //  Serial.print("Resetting Link");Serial.println(WHATLinks[_i],HEX);
+    //  Serial.print("Resetting Link");Serial.println(gblLink.links[_i],HEX);
     //#endif
   }
 #endif  
   // reset all child addresses:
   for(uint8_t _i=1;_i<15;_i++)
   { 
-    myChildren[_i].ChildAddress = 0xFFFF;
-    myChildren[_i].LatchKeyValue = 0xFFFF;
-    myChildren[_i].RelationshipType = 0;
-    myChildren[_i].Security = 0xFFFF;
+    gblNetwork.children[_i].ChildAddress = 0xFFFF;
+    gblNetwork.children[_i].LatchKeyValue = 0xFFFF;
+    gblNetwork.children[_i].RelationshipType = 0;
+    gblNetwork.children[_i].Security = 0xFFFF;
   }
 }
 
@@ -815,7 +828,7 @@ void WHAT_Default_EEPROM_Values(void)
 // %%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 // *  Network creation: - This is all built into WHAT.ino, and enabled by #define AUTO_ADDRESSING
 
-// WHAT_Reusable_Message1 
+// gblRegistry.reusableSlot 
 void holdingFunction(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
   // The re-usable call has to reserve a function.
@@ -872,40 +885,40 @@ void holdingFunction(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 */
 /*
 // Rx Message flags
-bool f_Rx_REQUEST_JOIN_NETWORK_03 = false;    // Preemie asking to join network
-bool f_Rx_NETWORK_ALERT_PREEMIE_03 = false;   // Notice from another device that a preemie is trying to join
-bool f_Rx_CHOOSE_NETWORK_05  = false;         // Notice to other networks that a network has accepted this preemie
-bool f_Rx_NETWORK_ALLOW_PREEMIE_04 = false;   // Notice to this preemie that it may accept its parent.
+bool gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false;    // Preemie asking to join network
+bool gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = false;   // Notice from another device that a preemie is trying to join
+bool gblRxFlags.f_CHOOSE_NETWORK_05  = false;         // Notice to other networks that a network has accepted this preemie
+bool gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = false;   // Notice to this preemie that it may accept its parent.
 bool f_Rx_PROPOSE_CHILD_NUMBER_07 = false;    // Preemie asking the network for a child number
-bool f_Rx_NETWORK_JOIN_COMPLETE_03 = false;   // Preeemie accepted a proposed parent 
-bool f_Rx_NETWORK_JOIN_ABORT_03 = false;      // User abort of the acceptance process.
-bool f_Rx_REPLY_ACKNOWLEDGE_03 = false;       // While a new network is forming, requests existing network to claim its PANID
+bool gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = false;   // Preeemie accepted a proposed parent 
+bool gblRxFlags.f_NETWORK_JOIN_ABORT_03 = false;      // User abort of the acceptance process.
+bool gblRxFlags.f_REPLY_ACKNOWLEDGE_03 = false;       // While a new network is forming, requests existing network to claim its PANID
 */
 
 void _Control_Net_Light(/*LightColor1*/ uint8_t LC1,/*Light Color 1 time*/ double _Time1,/*LightColor2 */ uint8_t LC2,/*Light Color 2 time*/ double _Time2 )
 {
   // Consolidates all of the flash timers into one subroutine.
-  //static double _flash_timer = millis();
-  static uint8_t _last_LC1 = WHAT_LIGHT_OFF;
-  static uint8_t _last_LC2 = WHAT_LIGHT_OFF;
+  //static double gbl_t_flash = millis();
+  static uint8_t _st_last_LC1 = WHAT_LIGHT_OFF;
+  static uint8_t _st_last_LC2 = WHAT_LIGHT_OFF;
   
-  if((_last_LC1 != LC1) | (_last_LC2 != LC2))
+  if((_st_last_LC1 != LC1) | (_st_last_LC2 != LC2))
   {
-    _flash_timer = millis();    // If either color command changes, reset the timer.
-    _last_LC1 = LC1;
-    _last_LC2 = LC2;
+    gbl_t_flash = millis();    // If either color command changes, reset the timer.
+    _st_last_LC1 = LC1;
+    _st_last_LC2 = LC2;
   }
 
-  if( _flash_timer <= millis() )
+  if( gbl_t_flash <= millis() )
   {
-    if(_WHAT_network_StateColor != LC1 ){
-    _WHAT_network_StateColor = LC1;
-    _flash_timer = millis() + _Time1;
+    if(gblMailbox.networkStateColor != LC1 ){
+    gblMailbox.networkStateColor = LC1;
+    gbl_t_flash = millis() + _Time1;
     }
     else
     {
-      _WHAT_network_StateColor = LC2;
-      _flash_timer = millis() + _Time2;
+      gblMailbox.networkStateColor = LC2;
+      gbl_t_flash = millis() + _Time2;
     }
   }
 }
@@ -915,10 +928,10 @@ void _Control_Net_Light(/*LightColor1*/ uint8_t LC1,/*Light Color 1 time*/ doubl
 // TOC Individual Recieve messages
 void Rx_REQUEST_JOIN_NETWORK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
-   f_Rx_REQUEST_JOIN_NETWORK_03 = true;
+   gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = true;
       #ifdef DX_ONLY
-        Serial.println(F("f_Rx_REQUEST_JOIN_NETWORK_03"));
-        Serial.print(F("_WHAT_network_State:")); Serial.println(_WHAT_network_State, DEC);
+        Serial.println(F("gblRxFlags.f_REQUEST_JOIN_NETWORK_03"));
+        Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
       #endif
 
 }  
@@ -926,12 +939,12 @@ void Rx_REQUEST_JOIN_NETWORK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 // TOC Individual Recieve messages 
 void Tx_REQUEST_ACK_03(void)
 {        
-    //myPANID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
+    //gblNetwork.panID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
     WHAT_Packet _WHAT_Tx_Packet;
     _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
     // Now send the ACK request
-    //WHAT_set_pan(myPANID);
-    _WHAT_Tx_Packet.pan_id = myPANID;      // Use the desired PANID so only that PANID will reply (if it is already used)
+    //WHAT_set_pan(gblNetwork.panID);
+    _WHAT_Tx_Packet.pan_id = gblNetwork.panID;      // Use the desired PANID so only that PANID will reply (if it is already used)
     _WHAT_Tx_Packet.destination = 0xFFFF;  // Send to ANY device with this PANID.
     _WHAT_Tx_Packet.sourceaddress = 0xFFFF;  // no source address claimed yet, in case another network has this address.
     uint8_t _index = 0;
@@ -942,20 +955,20 @@ void Tx_REQUEST_ACK_03(void)
     //Serial.print(F("Tx_REQUEST_ACK_03: ")); Serial.print(_WHAT_Tx_Packet.payload[0],HEX);Serial.print(_WHAT_Tx_Packet.payload[1],HEX);Serial.print(_WHAT_Tx_Packet.payload[2],HEX);Serial.print(_WHAT_Tx_Packet.payload[3],HEX);
       WHAT_TransmitPacket(_WHAT_Tx_Packet);
         #ifdef CHILD_MONITOR
-        Serial.print(F("Asking for ACK on :0x")); Serial.println(myPANID,HEX);
-        //Serial.print(F("Undefined Preemie state : ")); Serial.println(_WHAT_network_State,HEX);
+        Serial.print(F("Asking for ACK on :0x")); Serial.println(gblNetwork.panID,HEX);
+        //Serial.print(F("Undefined Preemie state : ")); Serial.println(gblMailbox.networkState,HEX);
       #endif
 }
 
 // TOC Individual Recieve messages 
-// WHAT_Reusable_Message1 
+// gblRegistry.reusableSlot 
 void Rx_REPLY_ACKNOWLEDGE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
 // Rx Message flags
-  f_Rx_REPLY_ACKNOWLEDGE_03 = true;       // While a new network is forming, requests existing network to claim its PANID
+  gblRxFlags.f_REPLY_ACKNOWLEDGE_03 = true;       // While a new network is forming, requests existing network to claim its PANID
     #ifdef CHILD_MONITOR
     Serial.print(F("Recieve ACK from :0x")); Serial.println(_WHAT_Rx_Packet.pan_id);
-    //Serial.print(F("Undefined Preemie state : ")); Serial.println(_WHAT_network_State,HEX);
+    //Serial.print(F("Undefined Preemie state : ")); Serial.println(gblMailbox.networkState,HEX);
     #endif
 }
 
@@ -974,33 +987,33 @@ void WHAT_StateCheck(void)
 
   bool default_case = true;    // Each routine will mark this as false so if NONE are executed, default will be true.
  //Serial.println("memberloop");
-  //static double _flash_timer = millis();
+  //static double gbl_t_flash = millis();
   //static WHAT_State _last_WHAT_network_State = WHAT_STARTUP;
 
   //TOC Evaluate WHAT network state
-//  switch (_WHAT_network_State)
+//  switch (gblMailbox.networkState)
 //  {
     /**********************************************************************************/
     /**********************************************************************************/
     /**********************************************************************************/
     // Check if this is a preemie or adult
     // Startup is the power on default
-      if(_WHAT_network_State == WHAT_STARTUP )//      case WHAT_STARTUP:
+      if(gblMailbox.networkState == WHAT_STARTUP )//      case WHAT_STARTUP:
       {
           default_case = false;  // Used to verify that one of the cases executed.
-          if( (mySourceAddress < 0xFFFF) | (myParentAddress< 0xFFFF))
+          if( (mySourceAddress < 0xFFFF) | (gblNetwork.parentAddress< 0xFFFF))
           {
             // This device has already been connected to a network and assigned an address.
             // see if the operator is trying to reset it at power up.
-            _WHAT_network_State = CHECK_PREEMIE_RESET;
-          //Serial.print(F("_WHAT_network_State -> CHECK_PREEMIE_RESET")); Serial.println(_WHAT_network_State);
+            gblMailbox.networkState = CHECK_PREEMIE_RESET;
+          //Serial.print(F("gblMailbox.networkState -> CHECK_PREEMIE_RESET")); Serial.println(gblMailbox.networkState);
           }
           else
           {
             // This device has never been connected to a network.
             // Handle it as a preemie.
-            _WHAT_network_State = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
-          //Serial.print(F("_WHAT_network_State -> WHAT_PRE_PREEMIE_NETWORK_SEARCH")); Serial.println(_WHAT_network_State);
+            gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
+          //Serial.print(F("gblMailbox.networkState -> WHAT_PRE_PREEMIE_NETWORK_SEARCH")); Serial.println(gblMailbox.networkState);
           }
       }//break;
 
@@ -1013,19 +1026,19 @@ void WHAT_StateCheck(void)
     // This device will just watch for a few MAC messages.
 
  // TOC Manual Restore PREEMIE state
-    if(_WHAT_network_State == CHECK_PREEMIE_RESET )//    case CHECK_PREEMIE_RESET:
+    if(gblMailbox.networkState == CHECK_PREEMIE_RESET )//    case CHECK_PREEMIE_RESET:
     {
           default_case = false;  // Used to verify that one of the cases executed.
         #ifdef CHILD_MONITOR
          Serial.println(F("Checking for PreemieReset"));
         #endif
-        if (_WHAT_NetworkButton == HIGH) // Button is active high
+        if (gblMailbox.networkButton == HIGH) // Button is active high
         {
-          WHAT_Reusable_Timer1 = millis() + 100;  // NETWORK button must be held for at least this long.
-          WHAT_Reusable_Timer2 = millis()+ 10000; // NETWORK button must be released and re-pressed before this time expires.
-          _WHAT_network_State = WHAT_RESET_PREMIE_INITIATED;  // Have the network light reflect the potential PREEMIE reset status.
+          gblScratch.timer1 = millis() + 100;  // NETWORK button must be held for at least this long.
+          gblScratch.timer2 = millis()+ 10000; // NETWORK button must be released and re-pressed before this time expires.
+          gblMailbox.networkState = WHAT_RESET_PREMIE_INITIATED;  // Have the network light reflect the potential PREEMIE reset status.
           #ifdef CHILD_MONITOR
-            Serial.print(F("_WHAT_network_State: WHAT_RESET_PREMIE_INITIATED ")); Serial.println(_WHAT_network_State);
+            Serial.print(F("gblMailbox.networkState: WHAT_RESET_PREMIE_INITIATED ")); Serial.println(gblMailbox.networkState);
           #endif
 
         }
@@ -1035,15 +1048,15 @@ void WHAT_StateCheck(void)
           Serial.println(F("PreemieReset NOT initiated"));
           #endif
 
-          if( (mySourceAddress < 0xFFFF) | (myParentAddress< 0xFFFF))
+          if( (mySourceAddress < 0xFFFF) | (gblNetwork.parentAddress< 0xFFFF))
           { // Device is NOT a preemie
-          _WHAT_network_State = WHAT_PRE_NET_ALIVE;  //
-          //Serial.print(F("_WHAT_network_StateColor:")); Serial.println(_WHAT_network_StateColor,DEC);
-          //Serial.print(F("_WHAT_network_State:")); Serial.println(_WHAT_network_State,DEC);
+          gblMailbox.networkState = WHAT_PRE_NET_ALIVE;  //
+          //Serial.print(F("gblMailbox.networkStateColor:")); Serial.println(gblMailbox.networkStateColor,DEC);
+          //Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState,DEC);
           }
           else
           { // device is a preemie.  try to find a network.
-            _WHAT_network_State = WHAT_PRE_PREEMIE_NETWORK_SEARCH;  //
+            gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;  //
           }
 
         }
@@ -1051,91 +1064,91 @@ void WHAT_StateCheck(void)
       // No lights during this check.  if the button is pressed at power on, validate user request to re-preemie.
     }//break;
 
-    if(_WHAT_network_State == WHAT_RESET_PREMIE_INITIATED )//    case WHAT_RESET_PREMIE_INITIATED:   // Button was held at 
+    if(gblMailbox.networkState == WHAT_RESET_PREMIE_INITIATED )//    case WHAT_RESET_PREMIE_INITIATED:   // Button was held at 
     {
           default_case = false;  // Used to verify that one of the cases executed.
-      if (_WHAT_NetworkButton == HIGH) // Button is active high
+      if (gblMailbox.networkButton == HIGH) // Button is active high
       {
-        if(WHAT_Reusable_Timer1 <= millis() )
+        if(gblScratch.timer1 <= millis() )
         { // Button was held for at least the minimum hold time.
           // Transition for waiting for it to be released.
-          //WHAT_Reusable_Timer2 <= millis() + 2000;
+          //gblScratch.timer2 <= millis() + 2000;
          #ifdef CHILD_MONITOR
-         Serial.print(F("_WHAT_network_State: WHAT_RESET_PREMIE_PENDING ")); Serial.println(WHAT_RESET_PREMIE_PENDING);
+         Serial.print(F("gblMailbox.networkState: WHAT_RESET_PREMIE_PENDING ")); Serial.println(WHAT_RESET_PREMIE_PENDING);
         #endif
-          _WHAT_network_State = WHAT_RESET_PREMIE_PENDING;
+          gblMailbox.networkState = WHAT_RESET_PREMIE_PENDING;
 
         }
       }
       else
       {
-           _WHAT_network_State = WHAT_PRE_NET_ALIVE;  //
+           gblMailbox.networkState = WHAT_PRE_NET_ALIVE;  //
       }
     // TOC Handle Light color based on network status
     // Network button held at power on - cycle while waiting for the button to be held long enough.
     // No light during this initial press time.
-      //_WHAT_network_StateColor = WHAT_LIGHT_OFF;
+      //gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_OFF,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
 
       }//  break;
     
-    if(_WHAT_network_State == WHAT_RESET_PREMIE_PENDING )//     case WHAT_RESET_PREMIE_PENDING:
+    if(gblMailbox.networkState == WHAT_RESET_PREMIE_PENDING )//     case WHAT_RESET_PREMIE_PENDING:
     {
           default_case = false;  // Used to verify that one of the cases executed.
       // Minimum press time established... the button must now be RELEASED before continuing.
-      if (_WHAT_NetworkButton == HIGH) // Button is active high
+      if (gblMailbox.networkButton == HIGH) // Button is active high
       { // ensure max timer has not been exceeded while the button is being held.
-       if(WHAT_Reusable_Timer2 <= millis() )
+       if(gblScratch.timer2 <= millis() )
         { // Button was never released.
           // The network button is not functioning properly.
           #ifdef CHILD_MONITOR
             Serial.println(F("Network Button was never released. "));
             #endif
-           _WHAT_network_State = WHAT_PRE_NETWORK_ERROR;  //
+           gblMailbox.networkState = WHAT_PRE_NETWORK_ERROR;  //
         }
       }
       else
       { // the button was release before the timer expired.  Now it must be pressed again to restore the preemie.
-           _WHAT_network_State = WHAT_RESET_PREMIE_AWAITING_ACTIVATION;
+           gblMailbox.networkState = WHAT_RESET_PREMIE_AWAITING_ACTIVATION;
         #ifdef CHILD_MONITOR
-         Serial.println(F("_WHAT_network_State: WHAT_RESET_PREMIE_AWAITING_ACTIVATION ")); Serial.println(WHAT_RESET_PREMIE_AWAITING_ACTIVATION);
+         Serial.println(F("gblMailbox.networkState: WHAT_RESET_PREMIE_AWAITING_ACTIVATION ")); Serial.println(WHAT_RESET_PREMIE_AWAITING_ACTIVATION);
         #endif
       }
     // TOC Handle Light color based on network status
     // Network button held at power on - cycle colors while waiting for the button to be released.
-      if( _flash_timer <= millis() ){
-        switch( _WHAT_network_StateColor)
+      if( gbl_t_flash <= millis() ){
+        switch( gblMailbox.networkStateColor)
         {
           case WHAT_LIGHT_BLUE:
-            _WHAT_network_StateColor = WHAT_LIGHT_GREEN;
+            gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
           break; 
           case WHAT_LIGHT_GREEN:
-            _WHAT_network_StateColor = WHAT_LIGHT_RED;
+            gblMailbox.networkStateColor = WHAT_LIGHT_RED;
           break; 
           case WHAT_LIGHT_RED:
-            _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+            gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
           break; 
           default:
-            _WHAT_network_StateColor = WHAT_LIGHT_BLUE;
+            gblMailbox.networkStateColor = WHAT_LIGHT_BLUE;
           break; 
         }
-        _flash_timer = millis() + 200;
+        gbl_t_flash = millis() + 200;
       }
     }//  break;
     
-    if(_WHAT_network_State == WHAT_RESET_PREMIE_AWAITING_ACTIVATION )//    case WHAT_RESET_PREMIE_AWAITING_ACTIVATION:
+    if(gblMailbox.networkState == WHAT_RESET_PREMIE_AWAITING_ACTIVATION )//    case WHAT_RESET_PREMIE_AWAITING_ACTIVATION:
     {
           default_case = false;  // Used to verify that one of the cases executed.
       // The button is working - it was pressed and released.  When pressed again, reset to preemie.
-      if (_WHAT_NetworkButton == HIGH) // Button is active high
+      if (gblMailbox.networkButton == HIGH) // Button is active high
       { //The button was pressed again.  Reset to PREEMIE mode.
         Serial.println(F("Reset Preemie criteria complete"));
         // preemie creation criteria met.   restore to preemie state, and continue with program initialization
         // Send an abandon network message so the parent will release the child slot, then revert to compile time values.
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
         _WHAT_Tx_Packet.WHAT_MAC_MESSAGE; 
-        _WHAT_Tx_Packet.pan_id = myPANID;
-        _WHAT_Tx_Packet.destination = myParentAddress;
+        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+        _WHAT_Tx_Packet.destination = gblNetwork.parentAddress;
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
         uint8_t _index = 0;
         _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
@@ -1150,26 +1163,26 @@ void WHAT_StateCheck(void)
         WHAT_StoreEEPROM();
         
         Serial.println(F("Preemie state restored."));
-        _WHAT_network_State = WHAT_PREEMIE_RESTORED;  //
+        gblMailbox.networkState = WHAT_PREEMIE_RESTORED;  //
         #ifdef CHILD_MONITOR
-         Serial.println(F("_WHAT_network_State: WHAT_PREEMIE_RESTORED ")); Serial.println(WHAT_PREEMIE_RESTORED);
+         Serial.println(F("gblMailbox.networkState: WHAT_PREEMIE_RESTORED ")); Serial.println(WHAT_PREEMIE_RESTORED);
         #endif
-        WHAT_Reusable_Timer2 = millis()+ 1000; // Give happy indication for a second once restored.
+        gblScratch.timer2 = millis()+ 1000; // Give happy indication for a second once restored.
     // TOC Handle Light color based on network status
     // Preemie state is restored. make the light green.
-        //_WHAT_network_StateColor = WHAT_LIGHT_GREEN; 
+        //gblMailbox.networkStateColor = WHAT_LIGHT_GREEN; 
         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 50 );
 
       }// End if the button was pressed.
       else
       { // If the button is never pressed again, have the restore time out.
-      if(WHAT_Reusable_Timer2 <= millis() )
+      if(gblScratch.timer2 <= millis() )
         { // Button was never released.
           // The network button is not functioning properly.
           #ifdef CHILD_MONITOR
           Serial.println(F("Network Button -not- re-pressed"));
           #endif
-           _WHAT_network_State = WHAT_PRE_NETWORK_ERROR;  //
+           gblMailbox.networkState = WHAT_PRE_NETWORK_ERROR;  //
         }
       }
     // TOC Handle Light color based on network status
@@ -1177,16 +1190,16 @@ void WHAT_StateCheck(void)
       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
     }//  break;
 
-    if(_WHAT_network_State == WHAT_PREEMIE_RESTORED )//     case WHAT_PREEMIE_RESTORED:
+    if(gblMailbox.networkState == WHAT_PREEMIE_RESTORED )//     case WHAT_PREEMIE_RESTORED:
     {
           default_case = false;  // Used to verify that one of the cases executed.
-      if(WHAT_Reusable_Timer2 <= millis() )
+      if(gblScratch.timer2 <= millis() )
         { // Preemie restoration is complete, and indication was given to user.
-           _WHAT_network_State = WHAT_PRE_PREEMIE_NETWORK_SEARCH;  //
+           gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;  //
         }
     // TOC Handle Light color based on network status
     // Preemie state is restored. Hold the light green as an indication.
-        //_WHAT_network_StateColor = WHAT_LIGHT_GREEN; 
+        //gblMailbox.networkStateColor = WHAT_LIGHT_GREEN; 
         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 50 );
       }//  break;
 
@@ -1195,36 +1208,36 @@ void WHAT_StateCheck(void)
 /**********************************************************************************/
 // TOC PREEMIE operations 
       // ++++++++++++   New preemie has not seen a network yet     ++++++++++++
-    if(_WHAT_network_State == WHAT_PRE_PREEMIE_NETWORK_SEARCH )//       case WHAT_PRE_PREEMIE_NETWORK_SEARCH:
+    if(gblMailbox.networkState == WHAT_PRE_PREEMIE_NETWORK_SEARCH )//       case WHAT_PRE_PREEMIE_NETWORK_SEARCH:
     {
           default_case = false;  // Used to verify that one of the cases executed.
           //The preemie trying to join the network. Use the reusable message to watch for another network.
-          // _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+          // gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_OFF,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
 
-           f_Rx_NETWORK_ALERT_PREEMIE_03 = false;   // Clear the message reception flag.
-            f_Rx_REQUEST_JOIN_NETWORK_03 = false;    // Clear the message reception flag.
-            _flash_timer = millis();
-            _WHAT_network_State = WHAT_PREEMIE_NETWORK_SEARCH;  // request joining any network that might be availble.
+           gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = false;   // Clear the message reception flag.
+            gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false;    // Clear the message reception flag.
+            gbl_t_flash = millis();
+            gblMailbox.networkState = WHAT_PREEMIE_NETWORK_SEARCH;  // request joining any network that might be availble.
 
           #ifdef CHILD_MONITOR
-          Serial.print(F("_WHAT_network_State: WHAT_PREEMIE_NETWORK_SEARCH ")); Serial.println(WHAT_PREEMIE_NETWORK_SEARCH);
+          Serial.print(F("gblMailbox.networkState: WHAT_PREEMIE_NETWORK_SEARCH ")); Serial.println(WHAT_PREEMIE_NETWORK_SEARCH);
           #endif
     }//    break;      
 
-    if(_WHAT_network_State == WHAT_PREEMIE_NETWORK_SEARCH )//       case WHAT_PREEMIE_NETWORK_SEARCH:
+    if(gblMailbox.networkState == WHAT_PREEMIE_NETWORK_SEARCH )//       case WHAT_PREEMIE_NETWORK_SEARCH:
     {
           default_case = false;  // Used to verify that one of the cases executed.
         // TOC PREEMIE operations 
                 // New device.  request joining any network that might be availble.
                 // This is a "preemie" - this device is hoping to join a network, and repeatedly sends a request to join.
-          if( _flash_timer <= millis() ) // If flash timer expired...
+          if( gbl_t_flash <= millis() ) // If flash timer expired...
           {
     // TOC    Request Joining Network 
               // Tx.PANID and Tx.SOURCEADDRESS are defaulted to 0xFFFF
               WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
               _WHAT_Tx_Packet.WHAT_MAC_MESSAGE; 
-              //WHAT_set_pan(myPANID);
+              //WHAT_set_pan(gblNetwork.panID);
               //WHAT_set_SourceAddress(mySourceAddress);
               _WHAT_Tx_Packet.pan_id = 0xFFFF;
               _WHAT_Tx_Packet.destination = 0xFFFF;
@@ -1242,48 +1255,48 @@ void WHAT_StateCheck(void)
                // TOC Handle Light color based on network status
             // Preemie state Looking for available network.  Toggle blue on/off while waiting.
             // Toggle occurs at the same time as a new message is transmitted (once per second)
-              if(_WHAT_network_StateColor != WHAT_LIGHT_BLUE )
+              if(gblMailbox.networkStateColor != WHAT_LIGHT_BLUE )
               {
-                _WHAT_network_StateColor = WHAT_LIGHT_BLUE;
+                gblMailbox.networkStateColor = WHAT_LIGHT_BLUE;
               }
               else
               {
-                _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+                gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
               }
-              _flash_timer = millis() + 2000;
+              gbl_t_flash = millis() + 2000;
            } // End If Flash timer expired
 
         // ooo One way out is to form a network ooo
         // TOC    Creating a new network 
-            if(f_Rx_REQUEST_JOIN_NETWORK_03)
+            if(gblRxFlags.f_REQUEST_JOIN_NETWORK_03)
             { // Another preemie is looking for a network, and this device has not yet joined a network.
               // Form a new network.
-              f_Rx_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
-              myPANID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
-              WHAT_set_pan(myPANID);
+              gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
+              gblNetwork.panID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
+              WHAT_set_pan(gblNetwork.panID);
           
               //prepare to recieve an ACK request from the chosen PANID. If other devices respond, then this address is already used.
               //re-configure the reusable message to receive an ACK from an existing network.
-              WHATRxMessage[WHAT_Reusable_Message1].MessageID = REPLY_ACKNOWLEDGE_03;
-              WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_REPLY_ACKNOWLEDGE_03; // Message callback set here to collect the responses
-             _WHAT_network_StateColor = WHAT_LIGHT_OFF;
-              f_Rx_REPLY_ACKNOWLEDGE_03 = false;    // Clear the message flag so only new messages will be used.
+              gblRegistry.message[gblRegistry.reusableSlot].MessageID = REPLY_ACKNOWLEDGE_03;
+              gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_REPLY_ACKNOWLEDGE_03; // Message callback set here to collect the responses
+             gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+              gblRxFlags.f_REPLY_ACKNOWLEDGE_03 = false;    // Clear the message flag so only new messages will be used.
               // TOC    Avoiding network conflicts 
                 // Now send the ACK request
                 // If anything replies, then this network already exists, and a new PANID will be chosen.
                 Tx_REQUEST_ACK_03();    // Request an ACK to see if any other device is using this PANID.
                       
                   // Start a delay timer.  If it expires with no ACK reply, this PANID is acceptable.
-                WHAT_Reusable_Timer1 = millis() + _RQST_ACK_DELAY;
-                Serial.print(F("Creating Network @ ")); Serial.println(myPANID, HEX);
-                _WHAT_network_State = WHAT_NETWORK_CREATING;  //Creating network, and delaying to see if this PANID is already used.
+                gblScratch.timer1 = millis() + _RQST_ACK_DELAY;
+                Serial.print(F("Creating Network @ ")); Serial.println(gblNetwork.panID, HEX);
+                gblMailbox.networkState = WHAT_NETWORK_CREATING;  //Creating network, and delaying to see if this PANID is already used.
             }
                 // ooo another way out is to be allowed into an existing network ooo
         // TOC    Network identified, waiting to be allowed 
-                 if(f_Rx_NETWORK_ALERT_PREEMIE_03)
+                 if(gblRxFlags.f_NETWORK_ALERT_PREEMIE_03)
                 {
-                  f_Rx_NETWORK_ALERT_PREEMIE_03 = false; // clear the message flag when it is used.
-                  _WHAT_network_State = WHAT_NETWORK_SEEN;
+                  gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = false; // clear the message flag when it is used.
+                  gblMailbox.networkState = WHAT_NETWORK_SEEN;
                   #ifdef CHILD_MONITOR
                     Serial.print(F("A Network Seen: ")); //Serial.println(millis(), HEX);
                   #endif
@@ -1291,16 +1304,16 @@ void WHAT_StateCheck(void)
       }//  break;
 
      // ++++++++++++   Preemie is forming a network      ++++++++++++
-     if(_WHAT_network_State == WHAT_NETWORK_CREATING )//     case WHAT_NETWORK_CREATING:
+     if(gblMailbox.networkState == WHAT_NETWORK_CREATING )//     case WHAT_NETWORK_CREATING:
      {
           default_case = false;  // Used to verify that one of the cases executed.
         // TOC    Creating a new network 
       // This device created a network, and sent an ACK request to verify its PANID is not used.
       // wait here for a period of time, and if no reply arrives, then make the network.
       // A reusable message is monitored for this reception. It was registered in "WHAT_PREEMIE_NETWORK_SEARCH".
-      //WHATRxMessage[WHAT_Reusable_Message1].MessageID = REPLY_ACKNOWLEDGE_03;
-      //WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_REPLY_ACKNOWLEDGE_03; // Message callback set here to collect the responses
-      if( f_Rx_REPLY_ACKNOWLEDGE_03)
+      //gblRegistry.message[gblRegistry.reusableSlot].MessageID = REPLY_ACKNOWLEDGE_03;
+      //gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_REPLY_ACKNOWLEDGE_03; // Message callback set here to collect the responses
+      if( gblRxFlags.f_REPLY_ACKNOWLEDGE_03)
         {// Ack seen.  try a different address.
           // As a preemie converting to a network creator, this device will send a
           // request for ACK to see if the PANID it chose is already used.
@@ -1308,37 +1321,37 @@ void WHAT_StateCheck(void)
           //  2 preemies are within range of each other, and they have not been accepted into another
           //  network, and the new PANID is randomly chosen, so it will probably not match.
           // But if it DOES happen, just try a different PANID.
-          f_Rx_REPLY_ACKNOWLEDGE_03 = false; // clear the message flag when it is used.
-          myPANID = (uint16_t) millis();  // Make up a -new- PANID based on the timer.  This will be a pretty random value.
-          WHAT_set_pan(myPANID);
+          gblRxFlags.f_REPLY_ACKNOWLEDGE_03 = false; // clear the message flag when it is used.
+          gblNetwork.panID = (uint16_t) millis();  // Make up a -new- PANID based on the timer.  This will be a pretty random value.
+          WHAT_set_pan(gblNetwork.panID);
           Tx_REQUEST_ACK_03();    // Request an ACK to see if any other device is using this PANID.
       
           // Start a delay timer.  If it expires with no ACK reply, this PANID is acceptable.
-          WHAT_Reusable_Timer1 = millis() + _RQST_ACK_DELAY;
+          gblScratch.timer1 = millis() + _RQST_ACK_DELAY;
         #ifdef CHILD_MONITOR
         Serial.print(F("Trying new PANID : ")); Serial.println(millis());
         #endif
         }
-        if (WHAT_Reusable_Timer1 <= millis())
+        if (gblScratch.timer1 <= millis())
         {
           //Use the current PANID and leave PREEMIE mode.
-          //Serial.print(WHAT_Reusable_Timer1); Serial.print(" <- Timer     millis-> "); Serial.println(millis());
-          Serial.print(F("Network Created. PANID: 0x")); Serial.println(myPANID, HEX);
+          //Serial.print(gblScratch.timer1); Serial.print(" <- Timer     millis-> "); Serial.println(millis());
+          Serial.print(F("Network Created. PANID: 0x")); Serial.println(gblNetwork.panID, HEX);
           //WHAT_Default_EEPROM_Values();
           mySourceAddress = 0;  // When forming a new network, start with the address 0x0000
-          myParentAddress = 0;  // This is the only device that is its own parent.
+          gblNetwork.parentAddress = 0;  // This is the only device that is its own parent.
           myLatchKeyNumber = (uint16_t) millis();  // This device will make its own latchkey number (which really can not be used, because no one will know it.
           //myChildIndex = 0;             // When forming a new network, this device will start with no children.
           mySecurity = myLatchKeyNumber; // use this device's latchkey number as the base security number.
           WHAT_set_SourceAddress(mySourceAddress);
       
-          //Serial.print("Pre-Store PANID:0x"); Serial.println(myPANID);
+          //Serial.print("Pre-Store PANID:0x"); Serial.println(gblNetwork.panID);
           WHAT_StoreEEPROM();
           Serial.println(F("EEPROM Stored"));
 
-          //_WHAT_network_State = WHAT_PRE_NET_ALIVE; // Control will transition to the program loop from here.
-          WHAT_Reusable_Timer1 = millis()+ 1000; // This will hold the indication of successful creation.
-          _WHAT_network_State = WHAT_NETWORK_CREATED; //This device created a network.
+          //gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Control will transition to the program loop from here.
+          gblScratch.timer1 = millis()+ 1000; // This will hold the indication of successful creation.
+          gblMailbox.networkState = WHAT_NETWORK_CREATED; //This device created a network.
         }
 
         // TOC Handle Light color based on network status
@@ -1350,86 +1363,86 @@ void WHAT_StateCheck(void)
 
       // ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
       // ++++++++++++  Network was created by this device  ++++++++++++
-     if(_WHAT_network_State == WHAT_NETWORK_CREATED )//      case  WHAT_NETWORK_CREATED:
+     if(gblMailbox.networkState == WHAT_NETWORK_CREATED )//      case  WHAT_NETWORK_CREATED:
      {
            default_case = false;  // Used to verify that one of the cases executed.
-          //_WHAT_network_StateColor = WHAT_LIGHT_GREEN;
+          //gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 1000,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 1000 );
 
-          if( WHAT_Reusable_Timer1 <= millis() )  //THis is set in "WHAT_NETWORK_CREATING"
+          if( gblScratch.timer1 <= millis() )  //THis is set in "WHAT_NETWORK_CREATING"
           {
 
             _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_OFF,/*Light Color 1 time*/ 10,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 10 );
-           _WHAT_network_State = WHAT_PRE_NET_ALIVE;  // After creation has been indicated, go to live operations.
+           gblMailbox.networkState = WHAT_PRE_NET_ALIVE;  // After creation has been indicated, go to live operations.
           }
       }//  break;
 
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
       // ++++++++++++   Preemie is joining a network      ++++++++++++
-      if(_WHAT_network_State == WHAT_NETWORK_SEEN )//      case WHAT_NETWORK_SEEN:
+      if(gblMailbox.networkState == WHAT_NETWORK_SEEN )//      case WHAT_NETWORK_SEEN:
       {
           default_case = false;  // Used to verify that one of the cases executed.
         // TOC    Network identified, waiting to be allowed 
-              WHAT_Reusable_Timer1 = millis() + 60000; // During this time, collects offered child addresses and waits for network button press.
+              gblScratch.timer1 = millis() + 60000; // During this time, collects offered child addresses and waits for network button press.
               #ifdef CHILD_MONITOR
               Serial.println(F("PREEMIE sees network : ")); //Serial.println(millis());
               #endif
               // This is the initial run through for this state.
               // Keep an eye out for offered child slots.
-              _Offered_PANID = 0xFFFF; // These are collected in  Rx_PROPOSE_CHILD_NUMBER_07 to
-              _Offered_SourceAddress = 0xFFFF; // identify the lowest offered address seen.
-              _Offered_Latchkey = 0xFFFF;
-              WHATRxMessage[WHAT_Reusable_Message1].MessageID = NETWORK_ALLOW_PREEMIE_04;  // these are prospective parents offering free addresses.
-              WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_NETWORK_ALLOW_PREEMIE_04; // Message callback set here to collect the responses
-             _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+              gblJoining.panID = 0xFFFF; // These are collected in  Rx_PROPOSE_CHILD_NUMBER_07 to
+              gblJoining.sourceAddress = 0xFFFF; // identify the lowest offered address seen.
+              gblJoining.latchkey = 0xFFFF;
+              gblRegistry.message[gblRegistry.reusableSlot].MessageID = NETWORK_ALLOW_PREEMIE_04;  // these are prospective parents offering free addresses.
+              gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_NETWORK_ALLOW_PREEMIE_04; // Message callback set here to collect the responses
+             gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
              #ifdef CHILD_MONITOR
-                Serial.print(F("WHAT_Reusable_Message1: ")); Serial.println(WHAT_Reusable_Message1);
+                Serial.print(F("gblRegistry.reusableSlot: ")); Serial.println(gblRegistry.reusableSlot);
                 //Serial.print(F("Response Timeout : ")); Serial.println(millis());
               #endif
-               f_Rx_NETWORK_ALLOW_PREEMIE_04 = false;   // Clear the message reception flag.
+               gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = false;   // Clear the message reception flag.
 
-              _WHAT_network_State = WHAT_NETWORK_SEEN_WAIT;
+              gblMailbox.networkState = WHAT_NETWORK_SEEN_WAIT;
    
       }//   break;
 
-       if(_WHAT_network_State == WHAT_NETWORK_SEEN_WAIT )//     case WHAT_NETWORK_SEEN_WAIT:
+       if(gblMailbox.networkState == WHAT_NETWORK_SEEN_WAIT )//     case WHAT_NETWORK_SEEN_WAIT:
        {
           default_case = false;  // Used to verify that one of the cases executed.
-            if (WHAT_Reusable_Timer1 <= millis())
+            if (gblScratch.timer1 <= millis())
             {
               // When the LONG timeout occurs, revert to the request state.
-              _WHAT_network_State = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
+              gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
               #ifdef CHILD_MONITOR
               Serial.print(F("Network Button not pressed : ")); Serial.println(millis());
               #endif
             }
-            if(f_Rx_NETWORK_ALLOW_PREEMIE_04)
+            if(gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04)
             {// This preemie has been accepted to a network.
               // Get a parent address from the new network.
-              //Serial.println(F("Preemie f_Rx_NETWORK_ALLOW_PREEMIE_04"));
-              f_Rx_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
+              //Serial.println(F("Preemie gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04"));
+              gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
               #ifdef CHILD_MONITOR
-                Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID,HEX);
+                Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID,HEX);
                 //Serial.print(F("Response Timeout : ")); Serial.println(millis());
               #endif
-               if (_Offered_PANID < 0xFFFF) // Only do this if a PANID was offered.
+               if (gblJoining.panID < 0xFFFF) // Only do this if a PANID was offered.
                 {
                   // Other network members on this network seeing the NETWORK_ALLOW_PREEMIE_04 will send a proposed child address.
                   // note that the allowing node will send a proposed child number in the same messages as the allow message.
                   //  because of that, the _offered values must be reset prior to being allowed. (usually done in Network seen)
-                  _WHAT_network_State = WHAT_PRE_NETWORK_ALLOW_PREEMIE_04; // A valid PAN ID was offered.
+                  gblMailbox.networkState = WHAT_PRE_NETWORK_ALLOW_PREEMIE_04; // A valid PAN ID was offered.
                  }
             }
 
                 // If an abort message is recieved, return to the beginning.
-                if(f_Rx_NETWORK_JOIN_ABORT_03) 
+                if(gblRxFlags.f_NETWORK_JOIN_ABORT_03) 
                 {
-                  f_Rx_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
-                  //_WHAT_network_State = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+                  gblRxFlags.f_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
+                  //gblMailbox.networkState = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
                 #ifdef CHILD_MONITOR
-                  //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
-                  Serial.println(F("f_Rx_NETWORK_JOIN_ABORT_03")); 
-                  _WHAT_network_State = WHAT_PRE_NETWORK_ERROR; //Give the lamp color/text that indicates that the connection was aborted.
+                  //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
+                  Serial.println(F("gblRxFlags.f_NETWORK_JOIN_ABORT_03")); 
+                  gblMailbox.networkState = WHAT_PRE_NETWORK_ERROR; //Give the lamp color/text that indicates that the connection was aborted.
                 #endif
                 }
                 // TOC Handle Light color based on network status
@@ -1442,48 +1455,48 @@ void WHAT_StateCheck(void)
         
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
       // ++++++++++++  Preemie is waiting for a proposed ID    ++++++++++++
-       if(_WHAT_network_State == WHAT_PRE_NETWORK_ALLOW_PREEMIE_04 )//       case WHAT_PRE_NETWORK_ALLOW_PREEMIE_04:
+       if(gblMailbox.networkState == WHAT_PRE_NETWORK_ALLOW_PREEMIE_04 )//       case WHAT_PRE_NETWORK_ALLOW_PREEMIE_04:
        {
           default_case = false;  // Used to verify that one of the cases executed.
-          WHAT_Reusable_Timer1 = millis() + 5000;   // Wait this amount of time before accepting the lowest offered source address.
-          _WHAT_network_State = WHAT_NETWORK_JOINING;
-          Serial.print(F("_WHAT_network_State = WHAT_NETWORK_JOINING")); Serial.println(_WHAT_network_State,DEC);
+          gblScratch.timer1 = millis() + 5000;   // Wait this amount of time before accepting the lowest offered source address.
+          gblMailbox.networkState = WHAT_NETWORK_JOINING;
+          Serial.print(F("gblMailbox.networkState = WHAT_NETWORK_JOINING")); Serial.println(gblMailbox.networkState,DEC);
        }//break;
 
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
-        if(_WHAT_network_State == WHAT_NETWORK_JOINING )//     case WHAT_NETWORK_JOINING:
+        if(gblMailbox.networkState == WHAT_NETWORK_JOINING )//     case WHAT_NETWORK_JOINING:
         {
            default_case = false;  // Used to verify that one of the cases executed.
         // TOC    Accepted to existing netowrk 
             // A button on the network has permitted this preemie to join.
             // This preemie waits to allow several proposals, then responds with acceptance of the lowest proposed address.
             // the re-usable timer set in "WHAT_PRE_NETWORK_ALLOW_PREEMIE_04" will serve as a delay while the child proposal addresses are collected.
-              if (WHAT_Reusable_Timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
+              if (gblScratch.timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
               {
                 //Serial.println(F("Allow Preemie Timer Expired"));
-                //Serial.print(F("Offered PANID,PARENT,CHILD:"));Serial.print(_Offered_PANID,HEX);Serial.print(",");Serial.print(_Offered_Parent,HEX);Serial.print(",");Serial.println(_Offered_SourceAddress,HEX);
+                //Serial.print(F("Offered PANID,PARENT,CHILD:"));Serial.print(gblJoining.panID,HEX);Serial.print(",");Serial.print(gblJoining.parent,HEX);Serial.print(",");Serial.println(gblJoining.sourceAddress,HEX);
                #ifdef CHILD_MONITOR
-                Serial.print(F("Joining. Offered PANID:0x")); Serial.println(_Offered_PANID,HEX);
+                Serial.print(F("Joining. Offered PANID:0x")); Serial.println(gblJoining.panID,HEX);
                 //Serial.print(F("Response Timeout : ")); Serial.println(millis());
               #endif
-               if(_Offered_SourceAddress < 0xFFFF)
+               if(gblJoining.sourceAddress < 0xFFFF)
                 {  
-                  myPANID = _Offered_PANID;
-                  WHAT_set_pan(myPANID);
-                  mySourceAddress = _Offered_SourceAddress;
+                  gblNetwork.panID = gblJoining.panID;
+                  WHAT_set_pan(gblNetwork.panID);
+                  mySourceAddress = gblJoining.sourceAddress;
                   WHAT_set_SourceAddress(mySourceAddress);
                   WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
                   _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-                  _WHAT_Tx_Packet.pan_id = _Offered_PANID;
-                  _WHAT_Tx_Packet.sourceaddress = _Offered_SourceAddress;
-                  myParentAddress = _Offered_Parent;
+                  _WHAT_Tx_Packet.pan_id = gblJoining.panID;
+                  _WHAT_Tx_Packet.sourceaddress = gblJoining.sourceAddress;
+                  gblNetwork.parentAddress = gblJoining.parent;
                   myLatchKeyNumber = (uint16_t)millis();  //Create a random latch-key number
                   //myChildIndex = 0;   // Just in case for some reason this was not already 0 (like if this device was removed from another network).
                   // Now send a message to confirm which parent was chosen.
                   //ACCEPT_PARENT_06
-                  _WHAT_Tx_Packet.pan_id = myPANID;
+                  _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
                   _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
-                  _WHAT_Tx_Packet.destination = myParentAddress;   // Direct this message at the parent that accepted it.
+                  _WHAT_Tx_Packet.destination = gblNetwork.parentAddress;   // Direct this message at the parent that accepted it.
                   // ACCEPT_PARENT_06         0xF005 // 1 byte length, 2 byte command, 2 byte parent, 2 byte latchkey, 1 byte relation type // preemie accepts offer from parent, and proposes latch key value (derived from its timer upon sending)
                   uint8_t _index = 0;
                   _WHAT_Tx_Packet.payload[_index++] = 7; //Total payload length (including this byte)
@@ -1495,113 +1508,113 @@ void WHAT_StateCheck(void)
                   _WHAT_Tx_Packet.payload[_index++] = WHAT_PERMANENT;           // All devices are permanent at this point.
                       WHAT_TransmitPacket(_WHAT_Tx_Packet);
     
-                  //_WHAT_network_State = WHAT_PRE_NET_ALIVE;
+                  //gblMailbox.networkState = WHAT_PRE_NET_ALIVE;
                   WHAT_StoreEEPROM();
                   Serial.println(F("Tx Parent Chosen"));
                   Serial.println(F("PANID\tmySourceAddress\tmyLatchKeyNumber\tmyParentAddress"));
-                  Serial.print(myPANID,HEX);Serial.print("\t");Serial.print(mySourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(myParentAddress,HEX);
-                  //_WHAT_NetworkButton = LOW;   // indicate that the button is used so it will not roll into the next function.
-                  _WHAT_network_State = WHAT_PRE_CONFIRM_NEW_CHILD;  // Network light to indicate someone else's network was sucessfully joined.
+                  Serial.print(gblNetwork.panID,HEX);Serial.print("\t");Serial.print(mySourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(gblNetwork.parentAddress,HEX);
+                  //gblMailbox.networkButton = LOW;   // indicate that the button is used so it will not roll into the next function.
+                  gblMailbox.networkState = WHAT_PRE_CONFIRM_NEW_CHILD;  // Network light to indicate someone else's network was sucessfully joined.
 
                 }
                 else
                 { // No child address was offered. re-start the preemie process.
                   //Serial.println(F("No Source Address Offered"));
-                    _WHAT_network_State = WHAT_STARTUP;  //blip of red indication network was not joined.
+                    gblMailbox.networkState = WHAT_STARTUP;  //blip of red indication network was not joined.
               #ifdef CHILD_MONITOR
-                //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
+                //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
                 Serial.print(F("No child address offered: ")); Serial.println(millis());
               #endif
                 }
               }
-              //else {Serial.println(WHAT_Reusable_Timer1 - millis());}
+              //else {Serial.println(gblScratch.timer1 - millis());}
          _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 10,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 200 );
   
       }// break;
 
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
-      if(_WHAT_network_State == WHAT_PRE_CONFIRM_NEW_CHILD )//       case WHAT_PRE_CONFIRM_NEW_CHILD:
+      if(gblMailbox.networkState == WHAT_PRE_CONFIRM_NEW_CHILD )//       case WHAT_PRE_CONFIRM_NEW_CHILD:
       {
            default_case = false;  // Used to verify that one of the cases executed.
-          WHATRxMessage[WHAT_Reusable_Message1].MessageID = NETWORK_JOIN_COMPLETE_03;
-          WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_NETWORK_JOIN_COMPLETE_03; // Message callback set here to collect the responses
-          _WHAT_network_StateColor = WHAT_LIGHT_OFF;
-           f_Rx_NETWORK_JOIN_COMPLETE_03 = false;    // Clear the message flag so only new messages will be used.
-        WHAT_Reusable_Timer1 <= millis() + 1000;
-        _WHAT_network_State = WHAT_CONFIRM_NEW_CHILD;  //blip of red indication network was not joined.
+          gblRegistry.message[gblRegistry.reusableSlot].MessageID = NETWORK_JOIN_COMPLETE_03;
+          gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_NETWORK_JOIN_COMPLETE_03; // Message callback set here to collect the responses
+          gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+           gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = false;    // Clear the message flag so only new messages will be used.
+        gblScratch.timer1 <= millis() + 1000;
+        gblMailbox.networkState = WHAT_CONFIRM_NEW_CHILD;  //blip of red indication network was not joined.
 
       }//   break;
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
-      if(_WHAT_network_State == WHAT_CONFIRM_NEW_CHILD )//      case WHAT_CONFIRM_NEW_CHILD:
+      if(gblMailbox.networkState == WHAT_CONFIRM_NEW_CHILD )//      case WHAT_CONFIRM_NEW_CHILD:
       {
            default_case = false;  // Used to verify that one of the cases executed.
-          if (WHAT_Reusable_Timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
+          if (gblScratch.timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
           {
-            _WHAT_network_State = WHAT_PRE_NETWORK_ABORT;  //blip of red indication network was not joined.
+            gblMailbox.networkState = WHAT_PRE_NETWORK_ABORT;  //blip of red indication network was not joined.
             #ifdef CHILD_MONITOR
-            //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
+            //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
             Serial.print(F("Join timed out : ")); Serial.println(millis());
             #endif
           }
         // If an abort message is recieved, return to the beginning.
-          if(f_Rx_NETWORK_JOIN_ABORT_03) 
+          if(gblRxFlags.f_NETWORK_JOIN_ABORT_03) 
           {
-            f_Rx_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
-            //_WHAT_network_State = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
-            _WHAT_network_State = WHAT_PRE_NETWORK_ABORT;  //blip of red indication network was not joined.
+            gblRxFlags.f_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
+            //gblMailbox.networkState = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+            gblMailbox.networkState = WHAT_PRE_NETWORK_ABORT;  //blip of red indication network was not joined.
             #ifdef CHILD_MONITOR
-            //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
+            //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
             Serial.print(F("Join Abort : ")); Serial.println(millis());
            #endif
           }
-          if(f_Rx_NETWORK_JOIN_COMPLETE_03)
+          if(gblRxFlags.f_NETWORK_JOIN_COMPLETE_03)
           {
-            WHAT_Reusable_Timer1 = millis() + 1000;     // Just hold the light red for 1 second to indicate the network join aborted.
+            gblScratch.timer1 = millis() + 1000;     // Just hold the light red for 1 second to indicate the network join aborted.
             Serial.print(F("Network join confirmed ")); Serial.println(millis());
-          // _WHAT_network_StateColor = WHAT_LIGHT_GREEN;    
+          // gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;    
           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 50 );
-          _WHAT_network_State = WHAT_NEW_CHILD_CONFIRMED;  //blip of red indication network was not joined.
+          gblMailbox.networkState = WHAT_NEW_CHILD_CONFIRMED;  //blip of red indication network was not joined.
            
           }
       }//    break;
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
 
-      if(_WHAT_network_State == WHAT_NEW_CHILD_CONFIRMED )//      case WHAT_NEW_CHILD_CONFIRMED:
+      if(gblMailbox.networkState == WHAT_NEW_CHILD_CONFIRMED )//      case WHAT_NEW_CHILD_CONFIRMED:
       {
            default_case = false;  // Used to verify that one of the cases executed.
-         if (WHAT_Reusable_Timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
+         if (gblScratch.timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
           {
-           //_WHAT_network_StateColor = WHAT_LIGHT_OFF;
+           //gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
            _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_OFF,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
     
-            _WHAT_network_State = WHAT_STARTUP;  //blip of red indication network was not joined.
+            gblMailbox.networkState = WHAT_STARTUP;  //blip of red indication network was not joined.
             //#ifdef CHILD_MONITOR
-            //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
+            //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
             //#endif
           }
       }//  break;
 
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
-      if(_WHAT_network_State == WHAT_PRE_NETWORK_ABORT )//       case WHAT_PRE_NETWORK_ABORT:
+      if(gblMailbox.networkState == WHAT_PRE_NETWORK_ABORT )//       case WHAT_PRE_NETWORK_ABORT:
       {
            default_case = false;  // Used to verify that one of the cases executed.
-           WHAT_Reusable_Timer1 = millis() + 1000;     // Just hold the light red for 1 second to indicate the network join aborted.
-          // _WHAT_network_StateColor = WHAT_LIGHT_RED;    
+           gblScratch.timer1 = millis() + 1000;     // Just hold the light red for 1 second to indicate the network join aborted.
+          // gblMailbox.networkStateColor = WHAT_LIGHT_RED;    
             _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_RED,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 50 );
-           _WHAT_network_State = WHAT_NETWORK_ABORT;  //blip of red indication network was not joined.
+           gblMailbox.networkState = WHAT_NETWORK_ABORT;  //blip of red indication network was not joined.
 
        }// break;
 
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
-      if(_WHAT_network_State == WHAT_NETWORK_ABORT )//      case WHAT_NETWORK_ABORT:
+      if(gblMailbox.networkState == WHAT_NETWORK_ABORT )//      case WHAT_NETWORK_ABORT:
       {
            default_case = false;  // Used to verify that one of the cases executed.
-        if (WHAT_Reusable_Timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
+        if (gblScratch.timer1 <= millis()) //Wait a short time after permitted to join to get more proposed addresses.
           {
-            //_WHAT_network_StateColor = WHAT_LIGHT_OFF;   
+            //gblMailbox.networkStateColor = WHAT_LIGHT_OFF;   
             _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_OFF,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
 
-            _WHAT_network_State = WHAT_STARTUP;
+            gblMailbox.networkState = WHAT_STARTUP;
           }
       }//  break;
 
@@ -1609,56 +1622,56 @@ void WHAT_StateCheck(void)
 /**********************************************************************************/
 /**********************************************************************************/
 // TOC    Normal Adult operations 
-      if(_WHAT_network_State == WHAT_PRE_NET_ALIVE )//       case WHAT_PRE_NET_ALIVE:
+      if(gblMailbox.networkState == WHAT_PRE_NET_ALIVE )//       case WHAT_PRE_NET_ALIVE:
       {
            default_case = false;  // Used to verify that one of the cases executed.
               // Use the reusable message to respond to ACK requests.
-              WHATRxMessage[WHAT_Reusable_Message1].MessageID = REQUEST_ACK_03;     // destination requested to reply with ACK.
-              WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_REQUEST_ACK_03; // Message callback set here to collect the responses
-              _WHAT_network_StateColor = WHAT_LIGHT_OFF;
-               f_Rx_REQUEST_ACK_03 = false;          // Clear the message flag so only new messages will be used.
-              f_Rx_REQUEST_JOIN_NETWORK_03 = false; // Clear the message flag so only new messages will be used.
+              gblRegistry.message[gblRegistry.reusableSlot].MessageID = REQUEST_ACK_03;     // destination requested to reply with ACK.
+              gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_REQUEST_ACK_03; // Message callback set here to collect the responses
+              gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+               gblRxFlags.f_REQUEST_ACK_03 = false;          // Clear the message flag so only new messages will be used.
+              gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // Clear the message flag so only new messages will be used.
               #ifdef __WHAT_FULLLINK_h
-                f_Rx_REQUEST_FULL_LINK_03 = false; // Mark the reception flag as used so it is not duplicated.
+                gblLinkRxFlags.f_REQUEST_FULL_LINK_03 = false; // Mark the reception flag as used so it is not duplicated.
               #endif
-              _WHAT_network_State = WHAT_NET_ALIVE;
+              gblMailbox.networkState = WHAT_NET_ALIVE;
  
               #ifdef CHILD_MONITOR
-               Serial.print(F("_WHAT_network_StateColor:")); Serial.println(_WHAT_network_StateColor,DEC);
-               Serial.print(F("_WHAT_network_State: WHAT_NET_ALIVE ")); Serial.println(_WHAT_network_State);
+               Serial.print(F("gblMailbox.networkStateColor:")); Serial.println(gblMailbox.networkStateColor,DEC);
+               Serial.print(F("gblMailbox.networkState: WHAT_NET_ALIVE ")); Serial.println(gblMailbox.networkState);
               #endif
       }//  break;
 /**********************************************************************************/
 
-       if(_WHAT_network_State == WHAT_NET_ALIVE )//      case WHAT_NET_ALIVE:
+       if(gblMailbox.networkState == WHAT_NET_ALIVE )//      case WHAT_NET_ALIVE:
        {
            default_case = false;  // Used to verify that one of the cases executed.
           // If no network activity is currently underway, monitor network button interactions.
-            //#define Network_held WHAT_Reusable_Timer2  //This will not be active while other CASEs are active.
-            if (f_Rx_REQUEST_JOIN_NETWORK_03)   // A preemie is attempting to join the network.
+            //#define Network_held gblScratch.timer2  //This will not be active while other CASEs are active.
+            if (gblRxFlags.f_REQUEST_JOIN_NETWORK_03)   // A preemie is attempting to join the network.
             {
-                f_Rx_REQUEST_JOIN_NETWORK_03 = false; // Mark the reception flag as used so it is not duplicated.
-                _WHAT_network_State = WHAT_PRE_NEW_CHILD_REQ;
-                Serial.print(F("_WHAT_network_State: WHAT_PRE_NEW_CHILD_REQ ")); Serial.println(_WHAT_network_State);
+                gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // Mark the reception flag as used so it is not duplicated.
+                gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ;
+                Serial.print(F("gblMailbox.networkState: WHAT_PRE_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
             }
        #ifdef __WHAT_FULLLINK_h
-            if (_WHAT_NetworkButton == HIGH)   // Holding the network button will attempt to "link" this device with another device
+            if (gblMailbox.networkButton == HIGH)   // Holding the network button will attempt to "link" this device with another device
             {
-                _WHAT_network_State = WHAT_LINKING; // A holding routine for a linking sequence. Dont do anything else while linking.
+                gblMailbox.networkState = WHAT_LINKING; // A holding routine for a linking sequence. Dont do anything else while linking.
                   // This is aslo the ONLY way to get into Linking: Must have a source address<0xFFFF, and must be in "Alive" and the Network button pressed.
             }
-            if(f_Rx_REQUEST_FULL_LINK_03)
+            if(gblLinkRxFlags.f_REQUEST_FULL_LINK_03)
             {
-                _WHAT_network_State = WHAT_LINKING; // A holding routine for a linking sequence. Dont do anything else while linking.
+                gblMailbox.networkState = WHAT_LINKING; // A holding routine for a linking sequence. Dont do anything else while linking.
             }
-            if(f_Rx_REMOVE_FULL_LINK_03)
+            if(gblLinkRxFlags.f_REMOVE_FULL_LINK_03)
             {
-                _WHAT_network_State = WHAT_LINKING; // A holding routine for a linking sequence. Dont do anything else while linking.
+                gblMailbox.networkState = WHAT_LINKING; // A holding routine for a linking sequence. Dont do anything else while linking.
             }
        #endif
-            if (f_Rx_REQUEST_ACK_03)      // A preemie is trying to form a network using THIS network's PANID
+            if (gblRxFlags.f_REQUEST_ACK_03)      // A preemie is trying to form a network using THIS network's PANID
             {
-                f_Rx_REQUEST_ACK_03 = false; // Mark the reception flag as used so it is not duplicated.
+                gblRxFlags.f_REQUEST_ACK_03 = false; // Mark the reception flag as used so it is not duplicated.
                 Tx_REPLY_ACKNOWLEDGE_03(); 
                   // If a device is asking for verification that this network is alive, this is a reply to that request.
             }
@@ -1682,13 +1695,13 @@ void WHAT_StateCheck(void)
 // ************************************************************************
 // ************************************************************************
 // TOC    Child requesting addition to network 
-       if(_WHAT_network_State == WHAT_PRE_NEW_CHILD_REQ )//    case WHAT_PRE_NEW_CHILD_REQ:
+       if(gblMailbox.networkState == WHAT_PRE_NEW_CHILD_REQ )//    case WHAT_PRE_NEW_CHILD_REQ:
        {
            default_case = false;  // Used to verify that one of the cases executed.
-          f_Rx_REQUEST_JOIN_NETWORK_03 = false;
+          gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false;
             WHAT_Packet _WHAT_Tx_Packet;    // Create a temporary transmit packet.
             _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-            _WHAT_Tx_Packet.pan_id = myPANID;
+            _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
             uint8_t _index = 0;
@@ -1697,13 +1710,13 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALERT_PREEMIE_03);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALERT_PREEMIE_03);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
-        WHAT_Reusable_Timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY; // allow 30 seconds for a network button to be pressed.
-       _WHAT_network_State = WHAT_NEW_CHILD_REQ;  // In alll cases change to the new state.
-        Serial.print(F("_WHAT_network_State: WHAT_NEW_CHILD_REQ ")); Serial.println(_WHAT_network_State);
+        gblScratch.timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY; // allow 30 seconds for a network button to be pressed.
+       gblMailbox.networkState = WHAT_NEW_CHILD_REQ;  // In alll cases change to the new state.
+        Serial.print(F("gblMailbox.networkState: WHAT_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
        }//break;
 
 // ************************************************************************
-      if(_WHAT_network_State == WHAT_NEW_CHILD_REQ )//   case WHAT_NEW_CHILD_REQ:
+      if(gblMailbox.networkState == WHAT_NEW_CHILD_REQ )//   case WHAT_NEW_CHILD_REQ:
       {
            default_case = false;  // Used to verify that one of the cases executed.
         // A preemie is trying to join this network.
@@ -1711,13 +1724,13 @@ void WHAT_StateCheck(void)
         // the operator is allowing it to join.  Also propose a child address (if Available).
 
         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 100 );
-        //Serial.print(F("_WHAT_network_State: WHAT_NEW_CHILD_REQ ")); Serial.println(_WHAT_network_State);
-        //_WHAT_network_StateColor = WHAT_LIGHT_GREEN;
-         if (_WHAT_NetworkButton == HIGH) // Button is active high.
+        //Serial.print(F("gblMailbox.networkState: WHAT_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
+        //gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
+         if (gblMailbox.networkButton == HIGH) // Button is active high.
          {
              WHAT_Packet _WHAT_Tx_Packet;    // Create a temporary transmit packet.
             _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-            _WHAT_Tx_Packet.pan_id = myPANID;
+            _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
             uint8_t _index = 0;
@@ -1728,59 +1741,59 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.payload[_index++] = 1;  // This is a value for confirming allowance.
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
-            Serial.print(F("_WHAT_NetworkButton Pressed: ")); Serial.println(_WHAT_NetworkButton);
+            Serial.print(F("gblMailbox.networkButton Pressed: ")); Serial.println(gblMailbox.networkButton);
          }
         
-         if ((f_Rx_NETWORK_ALLOW_PREEMIE_04) |  (_WHAT_NetworkButton == HIGH))
+         if ((gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04) |  (gblMailbox.networkButton == HIGH))
          {
            // if THIS device or another device allowed a child to join, change to that state.
-           _WHAT_Child_Used = isChildAvailable(); // Check and see if a Child location if available.
+           uint8_t _WHAT_Child_Used = isChildAvailable(); // Check and see if a Child location if available. (local since Nov 2026 - was a global)
              if(_WHAT_Child_Used < 0xFF)
              {
-             _WHAT_network_State = WHAT_PRE_NEW_CHILD_OFFER; // 
+             gblMailbox.networkState = WHAT_PRE_NEW_CHILD_OFFER; // 
              }
              else
              {
               Serial.println(F("Child not available to offer"));
-              _WHAT_network_State = WHAT_PRE_NEW_CHILD_REQ; // 
+              gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ; // 
              }
          }
-         if(f_Rx_REQUEST_JOIN_NETWORK_03)
+         if(gblRxFlags.f_REQUEST_JOIN_NETWORK_03)
          {
            Serial.println(F("Preemie is still requesting join.  reTx allow."));
-          _WHAT_network_State = WHAT_PRE_NEW_CHILD_REQ;
+          gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ;
          }
     // TOC    Network identified, waiting to be allowed
-         if (WHAT_Reusable_Timer1 <= millis()) //Timer set when a child request is seen.  there is 30seconds to connect.
+         if (gblScratch.timer1 <= millis()) //Timer set when a child request is seen.  there is 30seconds to connect.
          { // If the timer expires while in this state, return to normal operations.
            Serial.println(F("\n Allow timer expired"));
-           _WHAT_network_State = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
+           gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
          }
       }//break;
 
 // ************************************************************************
-      if(_WHAT_network_State == WHAT_PRE_NEW_CHILD_OFFER )//    case WHAT_PRE_NEW_CHILD_OFFER:
+      if(gblMailbox.networkState == WHAT_PRE_NEW_CHILD_OFFER )//    case WHAT_PRE_NEW_CHILD_OFFER:
       {
             default_case = false;  // Used to verify that one of the cases executed.
          // If this device is already a member of the network,
           //and this or some other device has indicated that it sees the new child, offer an address for the new child.
-          WHATRxMessage[WHAT_Reusable_Message1].MessageID = ACCEPT_PARENT_06;   // This message comes once the network button is pressed.
-          WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_ACCEPT_PARENT_06; // Message callback set here to collect the responses
-          _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+          gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_PARENT_06;   // This message comes once the network button is pressed.
+          gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_ACCEPT_PARENT_06; // Message callback set here to collect the responses
+          gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
  
-          f_Rx_ACCEPT_PARENT_06 = false;   // Clear the message reception flag.
+          gblRxFlags.f_ACCEPT_PARENT_06 = false;   // Clear the message reception flag.
           Serial.println(F("Offering child"));
           // Inform the network that this device has a child spot open while a preemie is trying to join.
-          f_Rx_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
-          WHAT_Reusable_Timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY;  //This state will only remain active a short time.
+          gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
+          gblScratch.timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY;  //This state will only remain active a short time.
           // Send out a proposal for a child
           Tx_PROPOSE_CHILD_NUMBER_05();
           // There are seperate state machines for preemies and members, each handle the NETWORK_ALLOW_PREEMIE_04 state, but in different state machines.
-          _WHAT_network_State = WHAT_NEW_CHILD_OFFER; // Wait to see if child accepts offer.
+          gblMailbox.networkState = WHAT_NEW_CHILD_OFFER; // Wait to see if child accepts offer.
       }//break;
 
  // ************************************************************************ 
-      if(_WHAT_network_State == WHAT_NEW_CHILD_OFFER )//     case WHAT_NEW_CHILD_OFFER:
+      if(gblMailbox.networkState == WHAT_NEW_CHILD_OFFER )//     case WHAT_NEW_CHILD_OFFER:
       {
            default_case = false;  // Used to verify that one of the cases executed.
 // TOC    New child allowed to be added to network 
@@ -1789,22 +1802,22 @@ void WHAT_StateCheck(void)
       
       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_BLUE,/*Light Color 2 time*/ 100 );
 
-      if (WHAT_Reusable_Timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
+      if (gblScratch.timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
         {
             Serial.println(F("New Child Timeout"));
-            _WHAT_network_State = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
+            gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
         }
-        if(f_Rx_ACCEPT_PARENT_06)
+        if(gblRxFlags.f_ACCEPT_PARENT_06)
         {
-          f_Rx_ACCEPT_PARENT_06 = false;    // clear the message flag when it is used.
+          gblRxFlags.f_ACCEPT_PARENT_06 = false;    // clear the message flag when it is used.
           // whether the device accepted THIS device as a parent or not, indicate that this state is completed.
           Serial.println(F("New Child Accepted"));
             //Serial.println(F("Child accepted."));
             //Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
-            //Serial.print(myPANID);Serial.print(myChildren[_myChild_available_Index].ChildAddress);Serial.print(myChildren[_myChild_available_Index].LatchKeyValue);Serial.println(myChildren[_myChild_available_Index].RelationshipType);
+            //Serial.print(gblNetwork.panID);Serial.print(gblNetwork.children[_myChild_available_Index].ChildAddress);Serial.print(gblNetwork.children[_myChild_available_Index].LatchKeyValue);Serial.println(gblNetwork.children[_myChild_available_Index].RelationshipType);
              WHAT_Packet _WHAT_Tx_Packet;    // Create a temporary transmit packet.
             _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-            _WHAT_Tx_Packet.pan_id = myPANID;
+            _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
              uint8_t _index = 0;
@@ -1814,79 +1827,79 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03);
            WHAT_TransmitPacket(_WHAT_Tx_Packet);
            Serial.print(F("\nBirth Announcement: "));
-           WHAT_Reusable_Timer1 <= millis() + 2000;
-          _WHAT_network_State = WHAT_NEW_CHILD_CONFIRMED; // return to normal light operation.
+           gblScratch.timer1 <= millis() + 2000;
+          gblMailbox.networkState = WHAT_NEW_CHILD_CONFIRMED; // return to normal light operation.
         }
      
       }//break;
 
 // ************************************************************************
-      if(_WHAT_network_State == WHAT_PRE_NETWORK_ERROR )//     case WHAT_PRE_NETWORK_ERROR:
+      if(gblMailbox.networkState == WHAT_PRE_NETWORK_ERROR )//     case WHAT_PRE_NETWORK_ERROR:
       {
             default_case = false;  // Used to verify that one of the cases executed.
        // Something unexpected happened.  Flash the red light for a bit, then return to preemie check.
           #ifdef CHILD_MONITOR
           Serial.println(F("WHAT Network Error: ")); 
           #endif
-          WHAT_Reusable_Timer1 = millis() + 5000; // Keep it green for several seconds.
-          _WHAT_network_State = WHAT_NETWORK_ERROR;  //blip of red indication network was not joined.
-          //_WHAT_network_StateColor = WHAT_LIGHT_RED;    
+          gblScratch.timer1 = millis() + 5000; // Keep it green for several seconds.
+          gblMailbox.networkState = WHAT_NETWORK_ERROR;  //blip of red indication network was not joined.
+          //gblMailbox.networkStateColor = WHAT_LIGHT_RED;    
           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_RED,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 50 );
 
       }// break;
 // ************************************************************************
-      if(_WHAT_network_State == WHAT_NETWORK_ERROR )//     case WHAT_NETWORK_ERROR:
+      if(gblMailbox.networkState == WHAT_NETWORK_ERROR )//     case WHAT_NETWORK_ERROR:
       {
            default_case = false;  // Used to verify that one of the cases executed.
         // Something unexpected happened.  Flash the red light for a bit, then return to preemie check.
-              if (WHAT_Reusable_Timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
+              if (gblScratch.timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
               {
                   #ifdef CHILD_MONITOR
                   Serial.println(F("Returning to Startup. ")); 
                   #endif
-                _WHAT_network_State = WHAT_STARTUP;  //After the red light expires, return to the startup state.
+                gblMailbox.networkState = WHAT_STARTUP;  //After the red light expires, return to the startup state.
               }
         }//break;
 // ************************************************************************
-        if(_WHAT_network_State == WHAT_LINKING )//     case WHAT_LINKING:
+        if(gblMailbox.networkState == WHAT_LINKING )//     case WHAT_LINKING:
         {
            default_case = false;  // Used to verify that one of the cases executed.
           #ifdef __WHAT_FULLLINK_h
             WHAT_LinkCheck();
-            if(_WHAT_LINK_State == WHAT_NO_LINK)
+            if(gblLink.state == WHAT_NO_LINK)
             {
-              _WHAT_network_State = WHAT_NET_ALIVE;
+              gblMailbox.networkState = WHAT_NET_ALIVE;
             }
           #endif
           #ifndef __WHAT_FULLLINK_h
-            _WHAT_network_State = WHAT_STARTUP;
+            gblMailbox.networkState = WHAT_STARTUP;
           #endif
         }//break;
 
      if(default_case == true)
      {
-       //Serial.print(F("Unhandled PREEMIE state:"));Serial.println(_WHAT_network_State);
+       //Serial.print(F("Unhandled PREEMIE state:"));Serial.println(gblMailbox.networkState);
        // If in an invalid state, revert to being a preemie.
          #ifdef CHILD_MONITOR
-         //Serial.print(F("Offered PANID:0x")); Serial.println(_Offered_PANID);
-         Serial.print(F("Undefined state : ")); Serial.println(_WHAT_network_State,DEC);
+         //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
+         Serial.print(F("Undefined state : ")); Serial.println(gblMailbox.networkState,DEC);
        #endif
-       //_WHAT_network_State = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
-       _WHAT_network_State = WHAT_PRE_NETWORK_ERROR;  //blip of red indication network was not joined.
+       //gblMailbox.networkState = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+       gblMailbox.networkState = WHAT_PRE_NETWORK_ERROR;  //blip of red indication network was not joined.
       }// break;
 
  //  }// End Switch
       
   // //Look for other messages of interest:
-  // if(f_Rx_REQUEST_JOIN_NETWORK_03)
+  // if(gblRxFlags.f_REQUEST_JOIN_NETWORK_03)
   // {
-  //   f_Rx_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
+  //   gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
   //   // Send Network Alert.
   //   WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
   //   _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
   //   // In all cases, if a child address is being proposed, also inform the network that a preemie wants to join.
   //   // In addition to proposing a child, tell the entire network that a child is trying to join:
-  //   _WHAT_Tx_Packet.pan_id = myPANID;
+  //   _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
   //   _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
   //   _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
   //   uint8_t _index = 0;
@@ -1899,45 +1912,45 @@ void WHAT_StateCheck(void)
    
   //  }// end if my proposed address is valid.
 
-  //  if(f_Rx_NETWORK_ALERT_PREEMIE_03)
+  //  if(gblRxFlags.f_NETWORK_ALERT_PREEMIE_03)
   //  {
-  //     f_Rx_NETWORK_ALERT_PREEMIE_03 = false; // clear the message flag when it is used.
+  //     gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = false; // clear the message flag when it is used.
   //     // The network has given an alert that a preemie is trying to join the network.
   //     // During that time, if this device address is <0x0100 it will monitor its network button
   //     // and send an acceptance signal if it is pressed.
   //     //Serial.println(F("Rx_NETWORK_ALERT_PREEMIE_03"));
   //     //WHAT_NETWORK_SEEN = true;
-  //     WHAT_Reusable_Timer1 = millis() + _RQST_WAIT_TIME; // Once a network is seen, slow the rate of requests.
-  //     //_WHAT_network_State = WHAT_NEW_CHILD_REQ;
-  //     _WHAT_network_State = WHAT_NETWORK_CREATING;
+  //     gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Once a network is seen, slow the rate of requests.
+  //     //gblMailbox.networkState = WHAT_NEW_CHILD_REQ;
+  //     gblMailbox.networkState = WHAT_NETWORK_CREATING;
   //  }
-  // if(f_Rx_CHOOSE_NETWORK_05)
+  // if(gblRxFlags.f_CHOOSE_NETWORK_05)
   // {// When a preemie chooses a network, if it is not THIS network, revert to finished state.
   //     //Serial.println(F("Rx_CHOOSE_NETWORK_05"));
-  //   f_Rx_CHOOSE_NETWORK_05 = false; // clear the message flag when it is used.
-  //   if (_Offered_PANID != myPANID) //Only respond if mature and if the given PANID does not match this one.
+  //   gblRxFlags.f_CHOOSE_NETWORK_05 = false; // clear the message flag when it is used.
+  //   if (gblJoining.panID != gblNetwork.panID) //Only respond if mature and if the given PANID does not match this one.
   //     {
-  //         _WHAT_network_State = WHAT_PRE_NET_ALIVE; // Return to normal if a different PANID is used.
-  //                WHAT_Reusable_Timer2 = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+  //         gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Return to normal if a different PANID is used.
+  //                gblScratch.timer2 = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
   //     }
   // }
-  //  if(f_Rx_NETWORK_JOIN_COMPLETE_03)
+  //  if(gblRxFlags.f_NETWORK_JOIN_COMPLETE_03)
   //  {
   //     //Serial.println(F("Rx_NETWORK_JOIN_COMPLETE_03"));
-  //    f_Rx_NETWORK_JOIN_COMPLETE_03 = false; // clear the message flag when it is used.
-  //    _WHAT_network_State = WHAT_PRE_NET_ALIVE; // Return to normal if the connection is aborted.
-  //    WHAT_Reusable_Timer2 = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
-  //    //_WHAT_network_State = WHAT_NETWORK_CREATED;
+  //    gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = false; // clear the message flag when it is used.
+  //    gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Return to normal if the connection is aborted.
+  //    gblScratch.timer2 = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+  //    //gblMailbox.networkState = WHAT_NETWORK_CREATED;
   //    //Setup_WHAT_Show_Connection();
   //  }
   //   // If an abort message is recieved, return to the beginning.
-  //   if(f_Rx_NETWORK_JOIN_ABORT_03) 
+  //   if(gblRxFlags.f_NETWORK_JOIN_ABORT_03) 
   //   {
   //       //Serial.println(F("Rx_NETWORK_JOIN_ABORT_03"));
-  //     f_Rx_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
-  //     _WHAT_network_State = WHAT_PRE_NET_ALIVE; // Return to normal if the connection is aborted.
-  //    WHAT_Reusable_Timer2 = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
-  //     _WHAT_network_State = WHAT_NETWORK_NONE;
+  //     gblRxFlags.f_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
+  //     gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Return to normal if the connection is aborted.
+  //    gblScratch.timer2 = millis()+ NETWORK_HELD_DELAY; // Reset the network held timer
+  //     gblMailbox.networkState = WHAT_NETWORK_NONE;
   //   }
 } // State Machine
 
@@ -1950,10 +1963,10 @@ uint8_t  isChildAvailable(void)
     for (uint8_t _i=0;_i<ChildMaxIndex;_i++)
     {
       #ifdef CHILD_MONITOR
-        //Serial.println(myChildren[_i].ChildAddress,HEX);
+        //Serial.println(gblNetwork.children[_i].ChildAddress,HEX);
       #endif
-      if(myChildren[_i].ChildAddress == _Offered_SourceAddress) _WHAT_Child_Empty = _i; // This is already a child of this parent.
-      if((_blankspot == 0xFF) & (myChildren[_i].ChildAddress == 0xFFFF)) _blankspot = _i; // Keep track of the first blank spot
+      if(gblNetwork.children[_i].ChildAddress == gblJoining.sourceAddress) _WHAT_Child_Empty = _i; // This is already a child of this parent.
+      if((_blankspot == 0xFF) & (gblNetwork.children[_i].ChildAddress == 0xFFFF)) _blankspot = _i; // Keep track of the first blank spot
     }
     if(_WHAT_Child_Empty == 0){ _WHAT_Child_Empty = _blankspot;} // if not already linked, use the blank spot.
     // Now "_WHAT_Child_Used" = either the location of previous link, an empty spot, or 0xFF if neither found,
@@ -1968,39 +1981,39 @@ uint8_t  isChildAvailable(void)
 void Rx_NETWORK_ALERT_PREEMIE_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
   //Serial.println(F("Rx_NETWORK_ALERT_PREEMIE_03"));
-  f_Rx_NETWORK_ALERT_PREEMIE_03 = true;   // Notice from another device that a preemie is trying to join
+  gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = true;   // Notice from another device that a preemie is trying to join
 }
 
 // TOC Individual Recieve messages 
-// WHAT_Reusable_Message1 
+// gblRegistry.reusableSlot 
 void Rx_NETWORK_ALLOW_PREEMIE_04(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
 // Rx Message flags
-  _Offered_PANID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
-  f_Rx_NETWORK_ALLOW_PREEMIE_04 = true;       // While a new network is forming, requests existing network to claim its PANID
+  gblJoining.panID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
+  gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = true;       // While a new network is forming, requests existing network to claim its PANID
     #ifdef CHILD_MONITOR
     Serial.print(F("Recieve acceptance of child from :0x")); Serial.println(_WHAT_Rx_Packet.sourceaddress);
-    //Serial.print(F("Undefined Preemie state : ")); Serial.println(_WHAT_network_State,HEX);
+    //Serial.print(F("Undefined Preemie state : ")); Serial.println(gblMailbox.networkState,HEX);
     #endif
 }
 
 // *****************
 // TOC Individual Recieve messages
-// WHAT_Reusable_Message1
+// gblRegistry.reusableSlot
 void Rx_PROPOSE_CHILD_NUMBER_05(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 { //This device received a proposed child address.
   // If this device has been accepted to a network, keep the lowest numbered proposal.
-  f_Rx_PROPOSE_CHILD_NUMBER_05 = true;    // Preemie asking the network for a child number
+  gblRxFlags.f_PROPOSE_CHILD_NUMBER_05 = true;    // Preemie asking the network for a child number
   //Serial.println(F("Rx_PROPOSE_CHILD_NUMBER_05"));
-    if (((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 4])) < _Offered_SourceAddress)
+    if (((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 4])) < gblJoining.sourceAddress)
     { // Keep the lowest offered child address.
-      if( _Offered_PANID == _WHAT_Rx_Packet.pan_id)  //Only accepting PANID from the PANID that sent the allowance indication.
+      if( gblJoining.panID == _WHAT_Rx_Packet.pan_id)  //Only accepting PANID from the PANID that sent the allowance indication.
       {
-        //_Offered_PANID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
-        _Offered_SourceAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
-        //_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
-        _Offered_Parent = WHAT_Rx_Packet.sourceaddress;
-        //Serial.print(F("New offered ID: 0x")); Serial.println(_Offered_SourceAddress);
+        //gblJoining.panID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
+        gblJoining.sourceAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+        //gblJoining.latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
+        gblJoining.parent = gblQueues.rxPacket.sourceaddress;
+        //Serial.print(F("New offered ID: 0x")); Serial.println(gblJoining.sourceAddress);
       }
     }
 }
@@ -2013,7 +2026,7 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
     uint16_t _Rx_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
     if (_Rx_ParentAddress == mySourceAddress) 
     { // Child selected THIS device as a parent.
-      f_Rx_ACCEPT_PARENT_06 = true;   // Indicate that this message was recieved.
+      gblRxFlags.f_ACCEPT_PARENT_06 = true;   // Indicate that this message was recieved.
         // Verify the child address matches an open child slot:
       //The algorithn is a little confusing.  Offered child addresses use the address of this device with the child index as the next higher nibble.
       // This requires pulling out the address of THIS device (Parent), and rotating the recieved address so only the index remains.
@@ -2026,21 +2039,21 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
       uint8_t _myChild_available_Index = _WHAT_Rx_Packet.sourceaddress >> ( ((mySourceAddress > 0x0) * 4) + ((mySourceAddress > 0x0F) * 4) + ((mySourceAddress > 0x0FF) * 4) );
       
       //and make sure that index does not already have a child in it, then fill it with this child.... 
-      if(myChildren[_myChild_available_Index].ChildAddress == 0xFFFF)
+      if(gblNetwork.children[_myChild_available_Index].ChildAddress == 0xFFFF)
       {
-        myChildren[_myChild_available_Index].ChildAddress = _WHAT_Rx_Packet.sourceaddress;
-        myChildren[_myChild_available_Index].LatchKeyValue = ((_WHAT_Rx_Packet.payload[_index+4]*0x100) +_WHAT_Rx_Packet.payload[_index+5]);
-        myChildren[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+6];
+        gblNetwork.children[_myChild_available_Index].ChildAddress = _WHAT_Rx_Packet.sourceaddress;
+        gblNetwork.children[_myChild_available_Index].LatchKeyValue = ((_WHAT_Rx_Packet.payload[_index+4]*0x100) +_WHAT_Rx_Packet.payload[_index+5]);
+        gblNetwork.children[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+6];
         Serial.print(F("Child accepted.  Index:"));Serial.println(_myChild_available_Index);
         Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
-        Serial.print(myPANID,HEX);Serial.print(F("\t"));Serial.print(myChildren[_myChild_available_Index].ChildAddress,HEX);Serial.print(F("\t"));Serial.print(myChildren[_myChild_available_Index].LatchKeyValue,HEX);Serial.print(F("\t"));Serial.println(myChildren[_myChild_available_Index].RelationshipType,HEX);
+        Serial.print(gblNetwork.panID,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].ChildAddress,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].LatchKeyValue,HEX);Serial.print(F("\t"));Serial.println(gblNetwork.children[_myChild_available_Index].RelationshipType,HEX);
 
       // Indicate that the parent accepts the child also!
       // #define NETWORK_JOIN_COMPLETE_03    0xF020   // 1 byte length, 2 byte command  // Sent by new parent (Birth Announcement)
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
         _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-        _WHAT_Tx_Packet.pan_id = myPANID;
-        _WHAT_Tx_Packet.destination = myChildren[_myChild_available_Index].ChildAddress;   // Send this to the child.
+        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+        _WHAT_Tx_Packet.destination = gblNetwork.children[_myChild_available_Index].ChildAddress;   // Send this to the child.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
         uint8_t _index = 0;
         _WHAT_Tx_Packet.payload[_index++] = 4; //include the length of the proposed child address.
@@ -2057,7 +2070,7 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
 
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
         _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-        _WHAT_Tx_Packet.pan_id = myPANID;
+        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
         _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
         uint8_t _index = 0;
@@ -2092,9 +2105,9 @@ void Rx_NETWORK_JOIN_COMPLETE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   // verify this message was from the proposed parent and the latchkey matches.
   uint16_t _Rx_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 4] * 0x100) + _WHAT_Rx_Packet.payload[_index + 5]);
 
-  if((_WHAT_Rx_Packet.sourceaddress == myParentAddress ) && (_Rx_Offered_Latchkey == myLatchKeyNumber))
+  if((_WHAT_Rx_Packet.sourceaddress == gblNetwork.parentAddress ) && (_Rx_Offered_Latchkey == myLatchKeyNumber))
   {
-   f_Rx_NETWORK_JOIN_COMPLETE_03 = true;   // Preeemie accepted a proposed parent 
+   gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = true;   // Preeemie accepted a proposed parent 
 
   }
 
@@ -2110,8 +2123,8 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
   while((_i < 16) & (_myChild_available_Index ==0))
   {
     // Check each index. If the source address is available (0xFFFF), capture that index, and stop the loop.
-    if( myChildren[_i].ChildAddress < 0xFFFF) {_i++;}else{_myChild_available_Index = _i;}
-    //Serial.print("Address/_i");Serial.print(myChildren[_i].ChildAddress);Serial.println(_i);
+    if( gblNetwork.children[_i].ChildAddress < 0xFFFF) {_i++;}else{_myChild_available_Index = _i;}
+    //Serial.print("Address/_i");Serial.print(gblNetwork.children[_i].ChildAddress);Serial.println(_i);
   }
   
   if ((_myChild_available_Index >0) & (_myChild_available_Index < 16)) //if the index is 16, then no slots available.  Address 0 is indistinguishable from parent, and is not allowed.
@@ -2131,19 +2144,19 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
     //       "If mySourceAddress >0x00FF, then myChildIndex must move left 3 nibbles (rotate left 12 times)(making the proposed address 0xC000) (where C is the child index)
     //        At the end of this process, mySourceAddress is logic ORed with myChildIndex becoming the _proposed_child_address.
     //        ** device addresses above 0x3FFF are not allowed.  If this index results in a larger number, it will not offer an address.
-    _Offered_SourceAddress = (_myChild_available_Index) << ( ((mySourceAddress > 0x0) * 4) + ((mySourceAddress > 0x0F) * 4) + ((mySourceAddress > 0x0FF) * 4) );
+    gblJoining.sourceAddress = (_myChild_available_Index) << ( ((mySourceAddress > 0x0) * 4) + ((mySourceAddress > 0x0F) * 4) + ((mySourceAddress > 0x0FF) * 4) );
     //Serial.print("Calc child address "); Serial.println(_proposed_child_address,HEX);
-    _Offered_SourceAddress |= mySourceAddress; // This incorporates the parent address into the child's address.
-    // *******  NOTE:  This _Offered_SourceAddress is checked when recieving ACCEPT_PARENT_06 *********** // 
+    gblJoining.sourceAddress |= mySourceAddress; // This incorporates the parent address into the child's address.
+    // *******  NOTE:  This gblJoining.sourceAddress is checked when recieving ACCEPT_PARENT_06 *********** // 
     //Serial.print("mySource"); Serial.println(mySourceAddress,HEX);
     //Serial.print("_proposed_child_address:0x"); Serial.println(_proposed_child_address,HEX);
 
-    if (_Offered_SourceAddress < 0x4FFF)
+    if (gblJoining.sourceAddress < 0x4FFF)
     {
   // A valid child address is available.
       WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
       _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-      _WHAT_Tx_Packet.pan_id = myPANID;
+      _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
       _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
       _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
       uint8_t _index = 0;
@@ -2151,18 +2164,18 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
       _WHAT_Tx_Packet.payload[_index++] = 5;   //MID size (for the 2nd message).
       _WHAT_Tx_Packet.payload[_index++] = highByte(PROPOSE_CHILD_NUMBER_05);// 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
       _WHAT_Tx_Packet.payload[_index++] = lowByte(PROPOSE_CHILD_NUMBER_05); //in order to support multibyte MIDs, put the high byte first.
-      _WHAT_Tx_Packet.payload[_index++] = highByte(_Offered_SourceAddress);//in order to support multibyte MIDs, put the high byte first.
-      _WHAT_Tx_Packet.payload[_index++] = lowByte(_Offered_SourceAddress);
+      _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.sourceAddress);//in order to support multibyte MIDs, put the high byte first.
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.sourceAddress);
       WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
-      WHATRxMessage[WHAT_Reusable_Message1].MessageID = ACCEPT_PARENT_06;  // these are prospective parents offering free addresses.
-      WHATRxMessage[WHAT_Reusable_Message1].callback = &Rx_ACCEPT_PARENT_06; // Message callback set here to collect the responses
-      _WHAT_network_StateColor = WHAT_LIGHT_OFF;
+      gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_PARENT_06;  // these are prospective parents offering free addresses.
+      gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_ACCEPT_PARENT_06; // Message callback set here to collect the responses
+      gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
 
-      f_Rx_ACCEPT_PARENT_06 = false;   // Clear the message reception flag.
+      gblRxFlags.f_ACCEPT_PARENT_06 = false;   // Clear the message reception flag.
 
       #ifdef CHILD_MONITOR
-        Serial.print(F("Tx Propose child address: 0x")); Serial.println(_Offered_SourceAddress,HEX);
+        Serial.print(F("Tx Propose child address: 0x")); Serial.println(gblJoining.sourceAddress,HEX);
       #endif
 
     }//End if my address proposal will be vaild.
@@ -2180,20 +2193,20 @@ void Rx_ABANDON_CHILD_05 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
    uint8_t _i=0;
    while (_i<=ChildMaxIndex)
    {
-      if(_WHAT_Rx_Packet.sourceaddress == myChildren[_i].ChildAddress)
+      if(_WHAT_Rx_Packet.sourceaddress == gblNetwork.children[_i].ChildAddress)
       { // the child has been found.  Before blanking, make sure it really was this child by checking the latchkey value.
-        if(((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]) == myChildren[_i].LatchKeyValue)
+        if(((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]) == gblNetwork.children[_i].LatchKeyValue)
         { // This is the child.  Remove it from the index.
-            myChildren[_i].ChildAddress = 0xFFFF;
-            myChildren[_i].LatchKeyValue = 0xFFFF;
-            myChildren[_i].RelationshipType = 0;
-            myChildren[_i].Security = 0xFFFF;
+            gblNetwork.children[_i].ChildAddress = 0xFFFF;
+            gblNetwork.children[_i].LatchKeyValue = 0xFFFF;
+            gblNetwork.children[_i].RelationshipType = 0;
+            gblNetwork.children[_i].Security = 0xFFFF;
         }//End Child removed
         else
         {// Security breach... incorrect latchkey value.  Note the security breach (not yet implimented)
           WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
           _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-          _WHAT_Tx_Packet.pan_id = myPANID;
+          _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
           _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
           _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
           uint8_t _index = 0;
@@ -2214,7 +2227,7 @@ void Rx_ABANDON_CHILD_05 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 // TOC Individual Transmit messages
 void Rx_REQUEST_ACK_03 (void)
 {
-    f_Rx_REQUEST_ACK_03 = true;    // Clear the message flag so only new messages will be used.
+    gblRxFlags.f_REQUEST_ACK_03 = true;    // Clear the message flag so only new messages will be used.
       #ifdef CHILD_MONITOR
         Serial.println(F("Rx Request Acknowledgement"));
       #endif
@@ -2226,7 +2239,7 @@ void Tx_REPLY_ACKNOWLEDGE_03 (void)
 {   
     WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
     _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
-    _WHAT_Tx_Packet.pan_id = myPANID;
+    _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
     _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
     _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
     uint8_t _index = 0;
@@ -2240,9 +2253,9 @@ void Tx_REPLY_ACKNOWLEDGE_03 (void)
 void Setup_WHAT_Show_Connection(void)
 {
   // This is just an indication that the connection is complete.
-  //Serial.print("Connected.   PANID:0x");Serial.println(myPANID,HEX);
+  //Serial.print("Connected.   PANID:0x");Serial.println(gblNetwork.panID,HEX);
   //Serial.print("           Address:0x");Serial.println(mySourceAddress,HEX);
-  //Serial.print("            Parent:0x");Serial.println(myParentAddress,HEX);
+  //Serial.print("            Parent:0x");Serial.println(gblNetwork.parentAddress,HEX);
   //Serial.print("          LatchKey:0x");Serial.println(myLatchKeyNumber,HEX);
   
 
