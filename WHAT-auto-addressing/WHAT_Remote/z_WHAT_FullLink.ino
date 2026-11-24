@@ -1,3 +1,5 @@
+#define WHAT_FULLLINK_INO_VERSION 26112401   // Revision: YYMMDD## - bump ## on any change to this file.
+
 #include "z_WHAT_FullLink.h"   // -This routine- as part of the WHAT system.
 
 // ***************************

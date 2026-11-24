@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 220329
+#define WHAT_NETWORK_VERSION 26112401
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.

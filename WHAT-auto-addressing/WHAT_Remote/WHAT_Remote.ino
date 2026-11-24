@@ -1,3 +1,5 @@
+#define WHAT_REMOTE_VERSION 26112401   // Revision: YYMMDD## - bump ## on any change to this file.
+
 #define USED_EEPROM_VALUE 0x7C   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. 
 
 /* W.H.A.T.

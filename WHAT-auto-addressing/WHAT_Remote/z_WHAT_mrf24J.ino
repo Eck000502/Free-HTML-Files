@@ -1,3 +1,5 @@
+#define WHAT_MRF24J_INO_VERSION 26112401   // Revision: YYMMDD## - bump ## on any change to this file.
+
 // ***************************
 // TableOfContents:
 // TOC Initialize the MRF24J

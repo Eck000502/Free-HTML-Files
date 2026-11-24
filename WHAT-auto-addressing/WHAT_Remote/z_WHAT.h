@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 191231
+#define WHAT_SOFTWARE_VERSION 26112401
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.

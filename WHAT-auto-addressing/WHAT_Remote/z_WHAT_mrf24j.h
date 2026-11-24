@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_MRF24J_h
 #define __WHAT_MRF24J_h
-#define WHAT_MRF24J_VERSION 260724
+#define WHAT_MRF24J_VERSION 26112401
 
 #include <SPI.h>
 #include <mrf24j_G.h> // *****************  trying to remove this from the final project.

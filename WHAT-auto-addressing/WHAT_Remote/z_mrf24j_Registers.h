@@ -2,6 +2,8 @@
 #ifndef __mrf24j_registers__
 #define __mrf24j_registers__
 
+#define MRF24J_REGISTERS_VERSION 26112401   // Revision: YYMMDD## - bump ## on any change to this file.
+
 // MRF24j Register Names and Addresses
 // This is a definition of CONSTANTS that will be used by the ZIGBEE.Inc file so names can be used in stead of addresses.
 // These need to be defined at the beginning of the file.  By defining them here and using this include, the main routine can be cleaner.

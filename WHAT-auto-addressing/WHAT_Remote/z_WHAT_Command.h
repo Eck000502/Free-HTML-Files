@@ -1,6 +1,6 @@
 #ifndef __WHATCommands_h_
 #define __WHATCommands_h_
-#define WHAT_COMMAND_VERSION 191013 
+#define WHAT_COMMAND_VERSION 26112401 
 
 //#include "z_WHAT_Command.h"
 
