@@ -1,4 +1,4 @@
-#define WHAT_REMOTECONTROL_VERSION 26112404   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTECONTROL_VERSION 26112405   // Revision: YYMMDD## - bump ## on any change to this file.
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D to match the Nov 24, 2026 base EEPROM layout - 32-bit latchkeys.)
 
@@ -11,6 +11,8 @@
 // control messages are BROADCAST - on a two-board bench that behaves exactly like the
 // old fixed peer link; on a bigger network, every member hears and decides.
 #define TRANSMIT_DELAY 500
+
+#define SOFTWARE_PWM_PERIOD_MS 100  // Software PWM cycle length for the FET outputs (see setFetOutputs). 100 ms = 10 Hz, and 1 ms of on-time per 1% of commanded duty.
 
 #define SIMULATED_INPUTS  // TEST (Nov 24, 2026, Gary's request): simulate the analog inputs instead of reading the potentiometers on A3-A5 - the simulated value steps 0% to 100% in 10% steps every 5 seconds. Mutually exclusive with Loop_ReadInputs: only one of the two runs (see loop()), and both write the same analog_in1/2/3 variables, so simulated values are transmitted exactly like real ones. Comment this line out to return to the real inputs.
 
@@ -557,29 +559,24 @@ void Loop_ReadInputs(void)
  */
 
 void setFetOutputs(int duty1, int duty2, int duty3) {
-  // Array of pins and duties for clean loop processing
-  // FIXED: this array held PWM_OUT_1/2/3 — the duty VALUES (0-100) — so the writes went
-  // to pins numbered 0-100 instead of to the FET pins. These are the actual output pins:
+  // SOFTWARE PWM (Nov 24, 2026, Gary's call): the FET pins (A0-A2) are not
+  // hardware-PWM pins on the Nano, so the old analogWrite() calls there
+  // degraded to a plain on/off threshold at ~50% - no waveform at all. This
+  // routine toggles the pins in time instead: loop() calls it every pass,
+  // one PWM cycle is SOFTWARE_PWM_PERIOD_MS long, and each pin is ON for
+  // duty% of every cycle (0% = always off, 100% = always on fall out of the
+  // same comparison). Low frequency, but a true duty cycle.
+  // (The pins array holds the actual FET output pins - an earlier version of
+  // this routine mistakenly held the duty VALUES, so the writes went to pins
+  // numbered 0-100.)
   int pins[3] = {o_FET1_PIN, o_FET2_PIN, o_FET3_PIN};
   int duties[3] = {duty1, duty2, duty3};
-
+  static unsigned long _st_cycleStart = millis();
+  unsigned long _phase = (millis() - _st_cycleStart) % SOFTWARE_PWM_PERIOD_MS;
   for (int i = 0; i < 3; i++) {
-    // Constrain the input to prevent out-of-bounds errors
     int targetDuty = constrain(duties[i], 0, 100);
-
-    if (targetDuty == 0) {
-      // 0% Duty Cycle: Stop PWM, force pin low (OFF)
-      digitalWrite(pins[i], LOW);
-    } 
-    else if (targetDuty == 100) {
-      // 100% Duty Cycle: Stop PWM, force pin high (ON)
-      digitalWrite(pins[i], HIGH);
-    } 
-    else {
-      // 1-99% Duty Cycle: Map 0-100 percentage to Arduino's 0-255 hardware PWM range
-      int pwmValue = map(targetDuty, 0, 100, 0, 255);
-      analogWrite(pins[i], pwmValue);
-    }
+    unsigned long _onTime = (SOFTWARE_PWM_PERIOD_MS * (unsigned long)targetDuty) / 100;
+    digitalWrite(pins[i], (_phase < _onTime) ? HIGH : LOW);
   }
 }
 
