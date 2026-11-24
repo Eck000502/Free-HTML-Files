@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112405
+#define WHAT_NETWORK_VERSION 26112406
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -481,7 +481,7 @@ void RX_WHAT (void)
             #endif
             //Serial.print("Rx Destination: 0x");Serial.println(gblQueues.rxPacket.destination,HEX);
             //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
-            if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.pan_id == GLOBAL_DESTINATION))
+            if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.destination == GLOBAL_DESTINATION))  // FIXED (Nov 24, 2026): the second clause compared pan_id to GLOBAL_DESTINATION, so broadcast DATA packets (destination 0xFFFF on a real PAN) never reached the payload handler. The MAC-command case below had it right. Masked until now because WHAT_Remote's traffic is directed; RemoteControl broadcasts.
             { // The recieved packet is targeting this device, or is general communications
               #ifdef DX_ONLY
                       Serial.println(F("Destination Match"));
