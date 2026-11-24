@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112403
+#define WHAT_NETWORK_VERSION 26112404
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -1019,16 +1019,19 @@ void _Control_Net_Light(/*LightColor1*/ uint8_t LC1,/*Light Color 1 time*/ doubl
 void Rx_REQUEST_JOIN_NETWORK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
    gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = true;
-   // STEP 1 (Nov 24, 2026): cache the searching preemie's temp ID, so this
-   // device's alert / propose / allow can bind themselves to THIS join
-   // attempt. Cached only where the founder/member role makes sense: by a
-   // network member, or by a preemie still in its own search state (which is
-   // about to found a network WITH this preemie). A preemie already waiting
-   // on an allow for its own attempt must not have its temp ID overwritten
-   // by a third device's search.
+   // STEP 1 (Nov 24, 2026): cache the searching preemie's temp ID as the
+   // HEARD temp ID, so this device's alert / propose / allow can bind
+   // themselves to THIS join attempt, and so a searching preemie can run
+   // the founding tiebreak against it. (My OWN temp ID lives in
+   // gblJoining.tempID and is never overwritten by a reception.) Cached only
+   // where the founder/member role makes sense: by a network member, or by
+   // a preemie still in its own search state (which may be about to found a
+   // network with this preemie). A preemie already waiting on an allow for
+   // its own attempt must not have the heard ID overwritten by a third
+   // device's search.
    if ((mySourceAddress < 0xFFFF) || (gblMailbox.networkState == WHAT_PREEMIE_NETWORK_SEARCH))
    {
-     gblJoining.tempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+     gblJoining.heardTempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
    }
       #ifdef DX_ONLY
         Serial.println(F("gblRxFlags.f_REQUEST_JOIN_NETWORK_03"));
@@ -1384,8 +1387,34 @@ void WHAT_StateCheck(void)
         // TOC    Creating a new network 
             if(gblRxFlags.f_REQUEST_JOIN_NETWORK_03)
             { // Another preemie is looking for a network, and this device has not yet joined a network.
-              // Form a new network.
               gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // clear the message flag when it is used.
+              // STEP 1 TIEBREAK (Nov 24, 2026): if both preemies are still searching when they
+              // hear each other, each is 'first to receive' from its own chair, and both would
+              // found - seen on the bench Nov 24, 2026, when two fresh uploads founded PANIDs
+              // 1F81 and 006B in the same second. The temp ID breaks the symmetry: the LOWER
+              // temp ID founds, the other keeps searching and joins the winner's network the
+              // normal way. Equal temp IDs (identical devices booted alike can draw the same
+              // first random value) re-roll and sit the round out; the next exchange compares
+              // fresh values, with the random pools by then stirred apart by radio noise.
+              bool _ThisDeviceFounds = true;
+              if (gblJoining.heardTempID == gblJoining.tempID)
+              {
+                gblJoining.tempID = (uint16_t)WHAT_Random32();  // Re-roll my temp ID.
+                _ThisDeviceFounds = false;
+                #ifdef CHILD_MONITOR
+                  Serial.println(F("Temp ID matches other preemie - re-rolled mine, still searching"));
+                #endif
+              }
+              else if (gblJoining.heardTempID < gblJoining.tempID)
+              {
+                _ThisDeviceFounds = false;  // The other preemie holds the lower temp ID - it founds.
+                #ifdef CHILD_MONITOR
+                  Serial.println(F("Other preemie has lower temp ID - it founds, still searching"));
+                #endif
+              }
+              if (_ThisDeviceFounds)
+              {
+              // Form a new network.
               gblNetwork.panID = (uint16_t) millis();  // Make up a new PANID based on the timer.  This will be a pretty random value.
               WHAT_set_pan(gblNetwork.panID);
           
@@ -1404,6 +1433,7 @@ void WHAT_StateCheck(void)
                 gblScratch.timer1 = millis() + _RQST_ACK_DELAY;
                 Serial.print(F("Creating Network @ ")); Serial.println(gblNetwork.panID, HEX);
                 gblMailbox.networkState = WHAT_NETWORK_CREATING;  //Creating network, and delaying to see if this PANID is already used.
+              } // End if this device won the founding tiebreak.
             }
                 // ooo another way out is to be allowed into an existing network ooo
         // TOC    Network identified, waiting to be allowed 
@@ -1837,8 +1867,8 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
             _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALERT_PREEMIE_03);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALERT_PREEMIE_03);
-            _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): the temp ID from the preemie's search, so members who missed the search can still bind their offers to this attempt.
-            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.heardTempID);  // STEP 1 (Nov 24, 2026): the temp ID from the preemie's search, so members who missed the search can still bind their offers to this attempt.
+            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.heardTempID);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
         gblScratch.timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY; // allow 30 seconds for a network button to be pressed.
        gblMailbox.networkState = WHAT_NEW_CHILD_REQ;  // In alll cases change to the new state.
@@ -1869,8 +1899,8 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALLOW_PREEMIE_04);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALLOW_PREEMIE_04);
             _WHAT_Tx_Packet.payload[_index++] = 1;  // This is a value for confirming allowance.
-            _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): temp ID echo - the preemie verifies this allow is for ITS attempt.
-            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.heardTempID);  // STEP 1 (Nov 24, 2026): temp ID echo - the preemie verifies this allow is for ITS attempt.
+            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.heardTempID);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
             Serial.print(F("gblMailbox.networkButton Pressed: ")); Serial.println(gblMailbox.networkButton);
@@ -2124,7 +2154,7 @@ void Rx_NETWORK_ALERT_PREEMIE_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   // must never be overwritten by an alert about somebody else.)
   if (mySourceAddress < 0xFFFF)
   {
-    gblJoining.tempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+    gblJoining.heardTempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
   }
 }
 
@@ -2186,7 +2216,7 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
       // STEP 1 (Nov 24, 2026): the accept must belong to the join attempt this
       // device heard - a mismatched temp ID means a different preemie's
       // attempt (or a spoof), and this accept is not acted on.
-      if (_Rx_TempID != gblJoining.tempID)
+      if (_Rx_TempID != gblJoining.heardTempID)
       {
         #ifdef CHILD_MONITOR
           Serial.println(F("Rx Accept Parent: temp ID mismatch - not this join attempt. Child NOT added."));
@@ -2349,8 +2379,8 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
       _WHAT_Tx_Packet.payload[_index++] = lowByte(PROPOSE_CHILD_NUMBER_05); //in order to support multibyte MIDs, put the high byte first.
       _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.sourceAddress);//in order to support multibyte MIDs, put the high byte first.
       _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.sourceAddress);
-      _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): temp ID echo - binds this offer to the preemie whose search was heard.
-      _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
+      _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.heardTempID);  // STEP 1 (Nov 24, 2026): temp ID echo - binds this offer to the preemie whose search was heard.
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.heardTempID);
       WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
       gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_PARENT_06;  // these are prospective parents offering free addresses.
