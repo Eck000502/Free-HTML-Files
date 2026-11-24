@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112403
+#define WHAT_SOFTWARE_VERSION 26112404
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -197,7 +197,8 @@ struct WHAT_Joining
   uint16_t sourceAddress = 0xFF;  // Lowest new address offered.
   uint16_t parent = 0xFF;         // Parent offering that address.
   uint32_t latchkey = 0xFFFFFFFF; // Latchkey offered by the parent with the lowest offered address. (32-bit since STEP 1, Nov 24, 2026.)
-  uint16_t tempID = 0xFFFF;       // STEP 1 (Nov 24, 2026): random per-attempt ID binding one join attempt. On a preemie: MY id, generated when a search begins. On a member: the id of the preemie whose search was last heard.
+  uint16_t tempID = 0xFFFF;       // STEP 1 (Nov 24, 2026): random per-attempt ID binding one join attempt - on a preemie, MY id, generated when a search begins, echoed back to me in the allow / offers / accept.
+  uint16_t heardTempID = 0xFFFF;  // STEP 1 TIEBREAK (Nov 24, 2026): the temp ID of the preemie whose search (or alert) was last heard. Members echo THIS in their alert / allow / propose and check it against the accept; a searching preemie compares it against its own tempID to decide which of them founds a network.
   uint32_t confirmNonce = 0;      // STEP 1 (Nov 24, 2026): preemie-side only - the nonce sent in ACCEPT_PARENT_06, against which the parent's NETWORK_JOIN_COMPLETE_03 proof is checked.
 };
 WHAT_Joining gblJoining;
