@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112401
+#define WHAT_NETWORK_VERSION 26112402
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -385,7 +385,7 @@ void RX_WHAT (void)
    if((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
     {
         gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // This allows an indication of any other devices on the network.
-        f_gbl_t_NetworkAlive = true;      // Flag that no other network nodes have been seen
+        f_gbl_t_NetworkAlive = true;      // Flag that other network nodes HAVE been seen (alive timer reset)
     }
 
 // TOC Identify the message type and act accordingly
@@ -1688,14 +1688,14 @@ void WHAT_StateCheck(void)
             }
             // *****************
 
-           if(f_gbl_t_NetworkAlive )     // Flag that no other network nodes have been seen
+           if(f_gbl_t_NetworkAlive )     // Other nodes seen within the alive timeout - blink GREEN
            {
             // While in the alive state, blink the light every few seconds.
-           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 5000 );
+           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 5000 );
            }
            else
            {
-           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 5000 );
+           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 5000 );
            }
   
       }//break;
