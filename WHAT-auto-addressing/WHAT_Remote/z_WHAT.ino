@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112402
+#define WHAT_NETWORK_VERSION 26112403
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -215,8 +215,59 @@ struct WHAT_Scratch
   uint16_t u16_2  = 0xFFFF;
   uint16_t u16_3  = 0xFFFF;
   uint16_t u16_4  = 0xFFFF;
+  uint32_t u32_1  = 0xFFFFFFFF;  // STEP 1 (Nov 24, 2026): 32-bit hand-offs (an accepted child's latchkey / confirm nonce) for the Birth Announcement.
+  uint32_t u32_2  = 0xFFFFFFFF;
 };
 WHAT_Scratch gblScratch;
+
+// *************************************************************************
+// STEP 1 (Nov 24, 2026) - Security primitives. One keyed mix is the ONLY
+// cryptographic machinery in WHAT (see WHAT_Security_Architecture_2026-11-24.md):
+// every proof in the join / abandon / (later) return and re-key flows is
+// WHAT_Mix32(latchkey, context, context) - the latchkey itself is transmitted
+// exactly once, inside the button-gated join, and never again.
+uint32_t WHAT_Mix32(uint32_t _key, uint32_t _a, uint32_t _b)
+{
+  uint32_t _z = _a ^ _key;
+  _z += _b + 0x9E3779B9UL;
+  _z = (_z ^ (_z >> 16)) * 0x21F0AAADUL;
+  _z = (_z ^ (_z >> 15)) * 0x735A2D97UL;
+  _z = (_z ^ (_z >> 15)) + _key;
+  return _z;
+}
+
+// Randomness pool. There is no hardware RNG on a Nano, so the pool is stirred
+// with whatever noise the device lives in: micros() jitter at human- and
+// radio-triggered moments, the RSSI/LQI of every packet heard (RX_WHAT stirs
+// it), and an analog reading. History-dependent, so a value is never a
+// function of uptime alone the way the old (uint16_t)millis() latchkey was.
+static uint32_t _st_RandomPool = 0x2545F491UL;
+void WHAT_RandomStir(uint32_t _noise)
+{
+  _st_RandomPool = WHAT_Mix32(_st_RandomPool, _noise, (uint32_t)micros());
+}
+uint32_t WHAT_Random32(void)
+{
+  _st_RandomPool = WHAT_Mix32(_st_RandomPool, (uint32_t)micros(), (uint32_t)analogRead(0));
+  return _st_RandomPool;
+}
+
+// 32-bit payload field helpers (big-endian, matching the highByte-first style
+// of the existing 16-bit fields). _index is the ABSOLUTE payload index of the
+// field's first byte. In transmit builds that is the running _index counter;
+// in receive callbacks (whose _index points at the MID-length byte) the first
+// data field of a message is at _index + 3.
+void WHAT_PayloadPut32(uint8_t *_payload, uint8_t _index, uint32_t _value)
+{
+  _payload[_index]     = (uint8_t)((_value >> 24) & 0xFF);
+  _payload[_index + 1] = (uint8_t)((_value >> 16) & 0xFF);
+  _payload[_index + 2] = (uint8_t)((_value >> 8) & 0xFF);
+  _payload[_index + 3] = (uint8_t)(_value & 0xFF);
+}
+uint32_t WHAT_PayloadGet32(uint8_t *_payload, uint8_t _index)
+{
+  return ((uint32_t)_payload[_index] << 24) | ((uint32_t)_payload[_index + 1] << 16) | ((uint32_t)_payload[_index + 2] << 8) | (uint32_t)_payload[_index + 3];
+}
 
 // (gblRegistry.reusableSlot moved into gblRegistry.reusableSlot, in z_WHAT.h - Nov 2026 rename pass.)
 //uint8_t gblRegistry.reusableSlot = 0xFF; //This is registered once, then the callback can be changed
@@ -301,6 +352,7 @@ void WHAT_begin(void)
   RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
   RegisterWHATMessage (PROPOSE_CHILD_NUMBER_05, &Rx_PROPOSE_CHILD_NUMBER_05); // This is an entry that will not change.
   RegisterWHATMessage (ABANDON_CHILD_05, &Rx_ABANDON_CHILD_05); // This is an entry that will not change.
+  RegisterWHATMessage (NETWORK_HEARTBEAT_03, &Rx_NETWORK_HEARTBEAT_03); // This is an entry that will not change. (STEP 1, Nov 24, 2026)
  
    // Trying to make these as re-usable messages.
   //RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
@@ -386,6 +438,7 @@ void RX_WHAT (void)
     {
         gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // This allows an indication of any other devices on the network.
         f_gbl_t_NetworkAlive = true;      // Flag that other network nodes HAVE been seen (alive timer reset)
+        WHAT_RandomStir(((uint32_t)gblQueues.rxPacket.rssi << 8) | gblQueues.rxPacket.lqi);  // STEP 1: radio noise stirs the randomness pool on every packet heard.
     }
 
 // TOC Identify the message type and act accordingly
@@ -613,6 +666,26 @@ void  WHATHouseKeeping(void)
        gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // go aheand and reset the counter here so this check is done less often.
        f_gbl_t_NetworkAlive = false;      // Flag that no other network nodes have been seen
       }
+  // TOC Liveness heartbeat (STEP 1, Nov 24, 2026)
+  // If this device has transmitted nothing for a full heartbeat interval, say
+  // so - one tiny broadcast. This guarantees every member is heard from at
+  // least once per interval, so another device's silence always means it is
+  // gone or out of range, never merely quiet. WHAT_TransmitPacket re-arms the
+  // deadline, including for this heartbeat itself.
+     if( gbl_t_NextHeartbeat <= millis())
+     {
+        WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+        _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+        _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+        _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
+        uint8_t _index = 0;
+        _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_HEARTBEAT_03);
+        _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_HEARTBEAT_03);
+        WHAT_TransmitPacket(_WHAT_Tx_Packet);
+     }
   }
 }
 
@@ -634,6 +707,11 @@ uint8_t RegisterWHATMessage (uint16_t _MessageID, void(*callback)(WHAT_Packet , 
 // TOC Put new message into buffer
 void WHAT_TransmitPacket (WHAT_Packet _WHAT_Tx_Packet)
 {
+  // STEP 1 (Nov 24, 2026): every transmission re-arms the heartbeat deadline -
+  // the heartbeat only fires if a full interval passes with NO transmission.
+  // The per-device jitter (from the low nibble of the source address) keeps a
+  // fleet of quiet devices from synchronizing their heartbeats into collisions.
+  gbl_t_NextHeartbeat = millis() + WHAT_HEARTBEAT_INTERVAL_MS + ((_WHAT_Tx_Packet.sourceaddress & 0x0F) * 173) % 1000;
   // the transmit packet is placed in the buffer to be transmitted.
       gblQueues.tx[gblQueues.txPendIndex] = _WHAT_Tx_Packet;
       gblQueues.txPendIndex++; 
@@ -659,9 +737,17 @@ void WHAT_TransmitPacket (WHAT_Packet _WHAT_Tx_Packet)
 #define EEPROM_myParentAddressH_LOCATION  EEPROM_myParentAddressL_LOCATION + 1
 #define EEPROM_myLatchKeyNumberL_LOCATION  EEPROM_myParentAddressH_LOCATION + 1
 #define EEPROM_myLatchKeyNumberH_LOCATION  EEPROM_myLatchKeyNumberL_LOCATION + 1
-#define EEPROM_preemie_State_LOCATION EEPROM_myLatchKeyNumberH_LOCATION + 1
+#define EEPROM_myLatchKeyNumberXL_LOCATION  EEPROM_myLatchKeyNumberH_LOCATION + 1
+#define EEPROM_myLatchKeyNumberXH_LOCATION  EEPROM_myLatchKeyNumberXL_LOCATION + 1
+#define EEPROM_preemie_State_LOCATION EEPROM_myLatchKeyNumberXH_LOCATION + 1
 #define _EEPROM_Child_LOCATION (EEPROM_preemie_State_LOCATION + 1)
-#define EEPROM_LINK_LOCATION _EEPROM_Child_LOCATION + 1
+// STEP 1 fix (Nov 24, 2026): this used to be _EEPROM_Child_LOCATION + 1 - an
+// address INSIDE the child records, harmless only because the FullLink code
+// that uses it is compiled out. The link table belongs AFTER the child table:
+// the store routine writes 14 records (indices 1..14) of 9 bytes each
+// (2 address + 4 latchkey + 1 relation + 2 security) = 126 bytes. If the child
+// record layout ever changes size, this number must change with it.
+#define EEPROM_LINK_LOCATION (_EEPROM_Child_LOCATION + 126)
 
 void  WHAT_EEPROM(void)
 {
@@ -684,7 +770,7 @@ void  WHAT_EEPROM(void)
     //Serial.print(F("EE read mySourceAddress:0x"));Serial.println(mySourceAddress,HEX);
     gblNetwork.parentAddress = EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressH_LOCATION) * 0x100);
     //Serial.print(F("EE read gblNetwork.parentAddress:0x"));Serial.println(gblNetwork.parentAddress,HEX);
-    myLatchKeyNumber = EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + (EEPROM.read(EEPROM_myLatchKeyNumberH_LOCATION) * 0x100);
+    myLatchKeyNumber = (uint32_t)EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + ((uint32_t)EEPROM.read(EEPROM_myLatchKeyNumberH_LOCATION) * 0x100UL) + ((uint32_t)EEPROM.read(EEPROM_myLatchKeyNumberXL_LOCATION) * 0x10000UL) + ((uint32_t)EEPROM.read(EEPROM_myLatchKeyNumberXH_LOCATION) * 0x1000000UL);  // 32-bit since STEP 1 (Nov 24, 2026)
     //Serial.print(F("EE read myLatchKeyNumber:0x"));Serial.println(myLatchKeyNumber,HEX);
       /* EEPROM.get( eeAddress, f ) for TEENSY!!!! */ 
       /* but this is listed in another example   value = EEPROM.read(address);  */
@@ -711,7 +797,11 @@ void  WHAT_EEPROM(void)
     for(uint8_t _i=1;_i<ChildMaxIndex;_i++)
     { // recover index 0 to the end, even though index 0 actually is used for this device.
       gblNetwork.children[_i].ChildAddress = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
-      gblNetwork.children[_i].LatchKeyValue = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
+      { // 32-bit latchkey since STEP 1 (Nov 24, 2026) - read byte-by-byte in a loop (the running EEPROM index must only advance once per statement; the multi-read expressions used elsewhere in this function are unsequenced for more than two reads).
+        uint32_t _v = 0;
+        for(uint8_t _b=0;_b<4;_b++){ _v |= ((uint32_t)EEPROM.read(_EEPROM_Child_Location++) << (8 * _b)); }
+        gblNetwork.children[_i].LatchKeyValue = _v;
+      }
       gblNetwork.children[_i].RelationshipType = EEPROM.read(_EEPROM_Child_Location++);
       gblNetwork.children[_i].Security = EEPROM.read(_EEPROM_Child_Location++) + (EEPROM.read(_EEPROM_Child_Location++) * 0x100);
       //Serial.println(_EEPROM_Child_Location);
@@ -735,7 +825,7 @@ void WHAT_StoreEEPROM(void)
   //Serial.print("mySourceAddress:");Serial.println(EEPROM.read(EEPROM_mySourceAddressL_LOCATION) + (EEPROM.read(EEPROM_mySourceAddressL_LOCATION) * 0x100),HEX);
   EEPROM.write(EEPROM_myParentAddressL_LOCATION, lowByte(gblNetwork.parentAddress)); EEPROM.write(EEPROM_myParentAddressH_LOCATION, highByte(gblNetwork.parentAddress));
   //Serial.print("gblNetwork.parentAddress:");Serial.println(EEPROM.read(EEPROM_myParentAddressL_LOCATION) + (EEPROM.read(EEPROM_myParentAddressL_LOCATION) * 0x100),HEX);
-  EEPROM.write(EEPROM_myLatchKeyNumberL_LOCATION, lowByte(myLatchKeyNumber)); EEPROM.write(EEPROM_myLatchKeyNumberH_LOCATION, highByte(myLatchKeyNumber));
+  EEPROM.write(EEPROM_myLatchKeyNumberL_LOCATION, (uint8_t)(myLatchKeyNumber & 0xFF)); EEPROM.write(EEPROM_myLatchKeyNumberH_LOCATION, (uint8_t)((myLatchKeyNumber >> 8) & 0xFF)); EEPROM.write(EEPROM_myLatchKeyNumberXL_LOCATION, (uint8_t)((myLatchKeyNumber >> 16) & 0xFF)); EEPROM.write(EEPROM_myLatchKeyNumberXH_LOCATION, (uint8_t)((myLatchKeyNumber >> 24) & 0xFF));  // 32-bit since STEP 1 (Nov 24, 2026)
   //Serial.print("myLatchKeyNumber:");Serial.println(EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) + (EEPROM.read(EEPROM_myLatchKeyNumberL_LOCATION) * 0x100),HEX);
 //  EEPROM.write(EEPROM_myChildIndex_LOCATION, myChildIndex);
   EEPROM.write(EEPROM_preemie_State_LOCATION, gblMailbox.networkState);
@@ -754,10 +844,10 @@ void _EEPORM_store_children (void)
   // reset all child addresses:
   uint8_t _EEPROM_Child_Location = _EEPROM_Child_LOCATION;
   //Serial.print(F("_EEPROM_Child_Location. Adr: 0x"));Serial.println(_EEPROM_Child_Location,HEX);
-  for(uint8_t _i=1;_i<16;_i++)
-  { // Store index 0 to the end, even though index 0 actually is used for this device.
+  for(uint8_t _i=1;_i<ChildMaxIndex;_i++)
+  { // Store index 1 to the end (index 0 is this device - its identity is stored in the fields above). STEP 1 fix (Nov 24, 2026): the bound was 16, which stored a 15th record from children[15] - one PAST the end of the 15-entry array (indices 0..14); the retrieve loop never read that record back (it also stops at ChildMaxIndex), so aligning the bound changes nothing that was ever restored - it only stops reading memory past the array.
     EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].ChildAddress)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].ChildAddress));
-    EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].LatchKeyValue)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].LatchKeyValue));
+    EEPROM.write(_EEPROM_Child_Location++, (uint8_t)(gblNetwork.children[_i].LatchKeyValue & 0xFF)); EEPROM.write(_EEPROM_Child_Location++, (uint8_t)((gblNetwork.children[_i].LatchKeyValue >> 8) & 0xFF)); EEPROM.write(_EEPROM_Child_Location++, (uint8_t)((gblNetwork.children[_i].LatchKeyValue >> 16) & 0xFF)); EEPROM.write(_EEPROM_Child_Location++, (uint8_t)((gblNetwork.children[_i].LatchKeyValue >> 24) & 0xFF));  // 32-bit since STEP 1 (Nov 24, 2026)
     EEPROM.write(_EEPROM_Child_Location++, gblNetwork.children[_i].RelationshipType); 
     EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].Security)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].Security));
     //Serial.println(_EEPROM_Child_Location,HEX);
@@ -797,7 +887,7 @@ void WHAT_Default_EEPROM_Values(void)
   WHAT_set_SourceAddress(0xFFFF);
   mySourceAddress = 0xFFFF;
   gblNetwork.parentAddress = 0xFFFF;
-  myLatchKeyNumber = 0xFFFF;
+  myLatchKeyNumber = 0xFFFFFFFF;
   gblNetwork.panID = 0xFFFF;
 //  myChildIndex = 0;    // each child will be indexed into the "gblNetwork.children" array.
   mySecurity = 0xFFFF;
@@ -815,7 +905,7 @@ void WHAT_Default_EEPROM_Values(void)
   for(uint8_t _i=1;_i<15;_i++)
   { 
     gblNetwork.children[_i].ChildAddress = 0xFFFF;
-    gblNetwork.children[_i].LatchKeyValue = 0xFFFF;
+    gblNetwork.children[_i].LatchKeyValue = 0xFFFFFFFF;
     gblNetwork.children[_i].RelationshipType = 0;
     gblNetwork.children[_i].Security = 0xFFFF;
   }
@@ -929,12 +1019,33 @@ void _Control_Net_Light(/*LightColor1*/ uint8_t LC1,/*Light Color 1 time*/ doubl
 void Rx_REQUEST_JOIN_NETWORK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
    gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = true;
+   // STEP 1 (Nov 24, 2026): cache the searching preemie's temp ID, so this
+   // device's alert / propose / allow can bind themselves to THIS join
+   // attempt. Cached only where the founder/member role makes sense: by a
+   // network member, or by a preemie still in its own search state (which is
+   // about to found a network WITH this preemie). A preemie already waiting
+   // on an allow for its own attempt must not have its temp ID overwritten
+   // by a third device's search.
+   if ((mySourceAddress < 0xFFFF) || (gblMailbox.networkState == WHAT_PREEMIE_NETWORK_SEARCH))
+   {
+     gblJoining.tempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+   }
       #ifdef DX_ONLY
         Serial.println(F("gblRxFlags.f_REQUEST_JOIN_NETWORK_03"));
         Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
       #endif
 
-}  
+}
+
+// TOC Individual Recieve messages
+void Rx_NETWORK_HEARTBEAT_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  // STEP 1 (Nov 24, 2026): nothing to do. A heartbeat's whole job is to be
+  // heard - RX_WHAT has already reset the network-alive timer on this
+  // same-PANID reception before dispatch. This callback exists so the
+  // message is registered and handled gracefully. (Later steps hook
+  // supervision of security-class devices onto this same reception.)
+}
 
 // TOC Individual Recieve messages 
 void Tx_REQUEST_ACK_03(void)
@@ -1151,12 +1262,12 @@ void WHAT_StateCheck(void)
         _WHAT_Tx_Packet.destination = gblNetwork.parentAddress;
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
         uint8_t _index = 0;
-        _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
-        _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 7; //MID length (including this byte)
         _WHAT_Tx_Packet.payload[_index++] = highByte(ABANDON_CHILD_05);
         _WHAT_Tx_Packet.payload[_index++] = lowByte(ABANDON_CHILD_05);
-        _WHAT_Tx_Packet.payload[_index++] = highByte(myLatchKeyNumber);
-        _WHAT_Tx_Packet.payload[_index++] = lowByte(myLatchKeyNumber);
+        // STEP 1 (Nov 24, 2026): send a PROOF of the latchkey, never the latchkey itself.
+        WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(myLatchKeyNumber, mySourceAddress, gblNetwork.parentAddress)); _index += 4;
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
         WHAT_Default_EEPROM_Values();
@@ -1217,6 +1328,7 @@ void WHAT_StateCheck(void)
 
            gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = false;   // Clear the message reception flag.
             gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false;    // Clear the message reception flag.
+            gblJoining.tempID = (uint16_t)WHAT_Random32();  // STEP 1 (Nov 24, 2026): a fresh temp ID for this join attempt - it rides in every search broadcast and must be echoed by the allow, the offers, and the accept.
             gbl_t_flash = millis();
             gblMailbox.networkState = WHAT_PREEMIE_NETWORK_SEARCH;  // request joining any network that might be availble.
 
@@ -1243,10 +1355,12 @@ void WHAT_StateCheck(void)
               _WHAT_Tx_Packet.destination = 0xFFFF;
               _WHAT_Tx_Packet.sourceaddress = 0xFFFF;
               uint8_t _index = 0;
-              _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
-              _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+              _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
+              _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
               _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_JOIN_NETWORK_03);
               _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_JOIN_NETWORK_03);
+              _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): this attempt's temp ID.
+              _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
               WHAT_TransmitPacket(_WHAT_Tx_Packet);
               #ifdef CHILD_MONITOR
               Serial.println(F("Tx WHAT_PREEMIE_NETWORK_SEARCH ")); Serial.println(millis());
@@ -1340,7 +1454,7 @@ void WHAT_StateCheck(void)
           //WHAT_Default_EEPROM_Values();
           mySourceAddress = 0;  // When forming a new network, start with the address 0x0000
           gblNetwork.parentAddress = 0;  // This is the only device that is its own parent.
-          myLatchKeyNumber = (uint16_t) millis();  // This device will make its own latchkey number (which really can not be used, because no one will know it.
+          myLatchKeyNumber = WHAT_Random32();  // STEP 1 (Nov 24, 2026): was (uint16_t)millis() - a 16-bit value anyone could guess from uptime. This device will make its own latchkey number (which really can not be used, because no one will know it.
           //myChildIndex = 0;             // When forming a new network, this device will start with no children.
           mySecurity = myLatchKeyNumber; // use this device's latchkey number as the base security number.
           WHAT_set_SourceAddress(mySourceAddress);
@@ -1391,7 +1505,7 @@ void WHAT_StateCheck(void)
               // Keep an eye out for offered child slots.
               gblJoining.panID = 0xFFFF; // These are collected in  Rx_PROPOSE_CHILD_NUMBER_07 to
               gblJoining.sourceAddress = 0xFFFF; // identify the lowest offered address seen.
-              gblJoining.latchkey = 0xFFFF;
+              gblJoining.latchkey = 0xFFFFFFFF;
               gblRegistry.message[gblRegistry.reusableSlot].MessageID = NETWORK_ALLOW_PREEMIE_04;  // these are prospective parents offering free addresses.
               gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_NETWORK_ALLOW_PREEMIE_04; // Message callback set here to collect the responses
              gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
@@ -1490,24 +1604,27 @@ void WHAT_StateCheck(void)
                   _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
                   _WHAT_Tx_Packet.pan_id = gblJoining.panID;
                   _WHAT_Tx_Packet.sourceaddress = gblJoining.sourceAddress;
-                  myLatchKeyNumber = (uint16_t)millis();  //Create a random latch-key number (tentative until confirmed)
+                  myLatchKeyNumber = WHAT_Random32();  // STEP 1 (Nov 24, 2026): was (uint16_t)millis(). Create a random 32-bit latch-key number (tentative until confirmed)
+                  gblJoining.confirmNonce = WHAT_Random32();  // STEP 1: the parent must echo a proof over this nonce in NETWORK_JOIN_COMPLETE_03 - proof it stored the latchkey, without re-sending it.
                   //myChildIndex = 0;   // Just in case for some reason this was not already 0 (like if this device was removed from another network).
                   // Now send a message to confirm which parent was chosen.
                   //ACCEPT_PARENT_06
                   _WHAT_Tx_Packet.pan_id = gblJoining.panID;
                   _WHAT_Tx_Packet.sourceaddress = gblJoining.sourceAddress;
                   _WHAT_Tx_Packet.destination = gblJoining.parent;   // Direct this message at the parent that accepted it.
-                  // ACCEPT_PARENT_06         0xF005 // 1 byte length, 2 byte command, 2 byte parent, 2 byte latchkey, 1 byte relation type // preemie accepts offer from parent, and proposes latch key value (derived from its timer upon sending)
+                  // ACCEPT_PARENT_06         0xF005 // 1 byte length, 2 byte command, 2 byte parent, 4 byte latchkey, 1 byte relation type, 4 byte confirm nonce, 2 byte temp ID // preemie accepts offer from parent, and proposes latch key value (STEP 1, Nov 24, 2026: randomly generated, 32-bit - was derived from its timer at 16 bits)
                   uint8_t _index = 0;
-                  _WHAT_Tx_Packet.payload[_index++] = 9; //Total payload length (including this byte)
-                  _WHAT_Tx_Packet.payload[_index++] = 8; //MID length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = 17; //Total payload length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = 16; //MID length (including this byte)
                   _WHAT_Tx_Packet.payload[_index++] = highByte(ACCEPT_PARENT_06);   // 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
                   _WHAT_Tx_Packet.payload[_index++] = lowByte(ACCEPT_PARENT_06);  //in order to support multibyte MIDs, put the high byte first.
                   _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.parent); // FIX (Nov 24, 2026): the parent field the documented format calls for was never sent - the parent read the latchkey as the parent address and rejected the join.
                   _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.parent);
-                  _WHAT_Tx_Packet.payload[_index++] = highByte(myLatchKeyNumber); //in order to support multibyte MIDs, put the high byte first.
-                  _WHAT_Tx_Packet.payload[_index++] = lowByte(myLatchKeyNumber);
+                  WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, myLatchKeyNumber); _index += 4;  // STEP 1 (Nov 24, 2026): the 32-bit latchkey. This is its ONE transmission - inside this button-gated join.
                   _WHAT_Tx_Packet.payload[_index++] = WHAT_PERMANENT;           // All devices are permanent at this point.
+                  WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, gblJoining.confirmNonce); _index += 4;  // STEP 1: confirm nonce - the parent's JOIN_COMPLETE proof is computed over this.
+                  _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1: temp ID echo - the parent verifies it matches the search it heard.
+                  _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
                       WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
                   // FIX (Nov 24, 2026): no WHAT_StoreEEPROM() here - the identity is only
@@ -1716,10 +1833,12 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
             uint8_t _index = 0;
-            _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
-            _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+            _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
+            _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
             _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALERT_PREEMIE_03);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALERT_PREEMIE_03);
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): the temp ID from the preemie's search, so members who missed the search can still bind their offers to this attempt.
+            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
         gblScratch.timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY; // allow 30 seconds for a network button to be pressed.
        gblMailbox.networkState = WHAT_NEW_CHILD_REQ;  // In alll cases change to the new state.
@@ -1745,11 +1864,13 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
             uint8_t _index = 0;
-            _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
-            _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+            _WHAT_Tx_Packet.payload[_index++] = 7; //Total payload length (including this byte) - STEP 1 (Nov 24, 2026): was 4, which never counted the confirm byte that was already being written.
+            _WHAT_Tx_Packet.payload[_index++] = 6; //MID length (including this byte)
             _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_ALLOW_PREEMIE_04);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_ALLOW_PREEMIE_04);
             _WHAT_Tx_Packet.payload[_index++] = 1;  // This is a value for confirming allowance.
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): temp ID echo - the preemie verifies this allow is for ITS attempt.
+            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
             Serial.print(F("gblMailbox.networkButton Pressed: ")); Serial.println(gblMailbox.networkButton);
@@ -1832,14 +1953,14 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
              uint8_t _index = 0;
-             _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
-             _WHAT_Tx_Packet.payload[_index++] = 7; //MID length (including this byte)
+             _WHAT_Tx_Packet.payload[_index++] = 11; //Total payload length (including this byte)
+             _WHAT_Tx_Packet.payload[_index++] = 10; //MID length (including this byte)
              _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03);
-            _WHAT_Tx_Packet.payload[_index++] = highByte(gblScratch.u16_1);  // FIX (Nov 24, 2026): child address + latchkey, handed off by Rx_ACCEPT_PARENT_06 - the broadcast announcement is the copy an unconfirmed child can actually receive (its address is still FFFF, so the directed copy is filtered out).
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblScratch.u16_1);  // FIX (Nov 24, 2026): child address, handed off by Rx_ACCEPT_PARENT_06 - the broadcast announcement is the copy an unconfirmed child can actually receive (its address is still FFFF, so the directed copy is filtered out).
             _WHAT_Tx_Packet.payload[_index++] = lowByte(gblScratch.u16_1);
-            _WHAT_Tx_Packet.payload[_index++] = highByte(gblScratch.u16_2);
-            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblScratch.u16_2);
+            // STEP 1 (Nov 24, 2026): the same proof as the directed copy - WHAT_Mix32(latchkey, confirm nonce, PANID | child address), from the u32 hand-offs - instead of the latchkey itself.
+            WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(gblScratch.u32_1, gblScratch.u32_2, (((uint32_t)gblNetwork.panID) << 16) | gblScratch.u16_1)); _index += 4;
            WHAT_TransmitPacket(_WHAT_Tx_Packet);
            Serial.print(F("\nBirth Announcement: "));
            gblScratch.timer1 = millis() + 2000;  // FIX (Nov 24, 2026): was '<=' (a comparison, result discarded) - the confirmed-state hold time never got set.
@@ -1997,6 +2118,14 @@ void Rx_NETWORK_ALERT_PREEMIE_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
   //Serial.println(F("Rx_NETWORK_ALERT_PREEMIE_03"));
   gblRxFlags.f_NETWORK_ALERT_PREEMIE_03 = true;   // Notice from another device that a preemie is trying to join
+  // STEP 1 (Nov 24, 2026): a member that missed the preemie's search itself
+  // learns the attempt's temp ID from the alert, so its offer can still bind
+  // to the attempt. (Members only - a preemie's own temp ID is its own and
+  // must never be overwritten by an alert about somebody else.)
+  if (mySourceAddress < 0xFFFF)
+  {
+    gblJoining.tempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+  }
 }
 
 // TOC Individual Recieve messages 
@@ -2004,6 +2133,13 @@ void Rx_NETWORK_ALERT_PREEMIE_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 void Rx_NETWORK_ALLOW_PREEMIE_04(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
 // Rx Message flags
+  // STEP 1 (Nov 24, 2026): the allow must echo THIS preemie's temp ID (the
+  // confirm byte is at _index + 3, the temp ID at _index + 4 / + 5). An allow
+  // for a different attempt - another preemie's join, or a spoof - is ignored.
+  if (((_WHAT_Rx_Packet.payload[_index + 4] * 0x100) + _WHAT_Rx_Packet.payload[_index + 5]) != gblJoining.tempID)
+  {
+    return;
+  }
   gblJoining.panID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
   gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = true;       // While a new network is forming, requests existing network to claim its PANID
     #ifdef CHILD_MONITOR
@@ -2020,7 +2156,11 @@ void Rx_PROPOSE_CHILD_NUMBER_05(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   // If this device has been accepted to a network, keep the lowest numbered proposal.
   gblRxFlags.f_PROPOSE_CHILD_NUMBER_05 = true;    // Preemie asking the network for a child number
   //Serial.println(F("Rx_PROPOSE_CHILD_NUMBER_05"));
-    if (((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 4])) < gblJoining.sourceAddress)
+  // STEP 1 (Nov 24, 2026): an offer counts only if it echoes this preemie's
+  // temp ID (at _index + 5 / + 6, after the proposed address) - offers meant
+  // for a different preemie's attempt must not be collected here.
+    if ((((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 4])) < gblJoining.sourceAddress)
+     && (((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 6])) == gblJoining.tempID))
     { // Keep the lowest offered child address.
       if( gblJoining.panID == _WHAT_Rx_Packet.pan_id)  //Only accepting PANID from the PANID that sent the allowance indication.
       {
@@ -2035,12 +2175,24 @@ void Rx_PROPOSE_CHILD_NUMBER_05(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 
 // *****************
 // TOC Individual Recieve messages
-void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte length, 2 byte command, 2 byte parent, 2 byte latchkey, 1 byte relation type // preemie accepts offer from parent, and proposes latch key value (derived from its timer upon sending)
+void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte length, 2 byte command, 2 byte parent, 4 byte latchkey, 1 byte relation type, 4 byte confirm nonce, 2 byte temp ID // preemie accepts offer from parent, and proposes latch key value (STEP 1, Nov 24, 2026: randomly generated, 32-bit - was derived from its timer at 16 bits)
 {
     uint16_t _Rx_ParentAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
-    uint16_t _Rx_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
+    uint32_t _Rx_Offered_Latchkey = WHAT_PayloadGet32(_WHAT_Rx_Packet.payload, _index + 5);  // STEP 1: 32-bit latchkey at +5..+8.
+    uint32_t _Rx_Confirm_Nonce = WHAT_PayloadGet32(_WHAT_Rx_Packet.payload, _index + 10);    // STEP 1: confirm nonce at +10..+13 (relation byte is at +9).
+    uint16_t _Rx_TempID = ((_WHAT_Rx_Packet.payload[_index + 14] * 0x100) + _WHAT_Rx_Packet.payload[_index + 15]);  // STEP 1: temp ID at +14/+15.
     if (_Rx_ParentAddress == mySourceAddress) 
     { // Child selected THIS device as a parent.
+      // STEP 1 (Nov 24, 2026): the accept must belong to the join attempt this
+      // device heard - a mismatched temp ID means a different preemie's
+      // attempt (or a spoof), and this accept is not acted on.
+      if (_Rx_TempID != gblJoining.tempID)
+      {
+        #ifdef CHILD_MONITOR
+          Serial.println(F("Rx Accept Parent: temp ID mismatch - not this join attempt. Child NOT added."));
+        #endif
+        return;
+      }
       gblRxFlags.f_ACCEPT_PARENT_06 = true;   // Indicate that this message was recieved.
         // Verify the child address matches an open child slot:
       //The algorithn is a little confusing.  Offered child addresses use the address of this device with the child index as the next higher nibble.
@@ -2057,10 +2209,11 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
       if(gblNetwork.children[_myChild_available_Index].ChildAddress == 0xFFFF)
       {
         gblNetwork.children[_myChild_available_Index].ChildAddress = _WHAT_Rx_Packet.sourceaddress;
-        gblNetwork.children[_myChild_available_Index].LatchKeyValue = _Rx_Offered_Latchkey;  // FIX (Nov 24, 2026): was read at +4/+5, one field early; _Rx_Offered_Latchkey already holds the value parsed at the documented offsets (+5/+6).
-        gblNetwork.children[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+7];  // FIX (Nov 24, 2026): was +6; the relation byte follows the latchkey in the documented format.
+        gblNetwork.children[_myChild_available_Index].LatchKeyValue = _Rx_Offered_Latchkey;  // STEP 1 (Nov 24, 2026): the 32-bit latchkey, parsed at +5..+8 above. (FIX history, Nov 24, 2026: the 16-bit value was once read at +4/+5, one field early.)
+        gblNetwork.children[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+9];  // STEP 1: the relation byte follows the 4-byte latchkey (+9). (Was +7 with the 2-byte latchkey.)
         gblScratch.u16_1 = _WHAT_Rx_Packet.sourceaddress;  // Hand the accepted child's address to the WHAT_NEW_CHILD_OFFER state for the Birth Announcement.
-        gblScratch.u16_2 = _Rx_Offered_Latchkey;           // Same hand-off for the latchkey.
+        gblScratch.u32_1 = _Rx_Offered_Latchkey;           // Same hand-off for the latchkey (32-bit now, so a u32 scratch).
+        gblScratch.u32_2 = _Rx_Confirm_Nonce;              // STEP 1: and the confirm nonce - the Birth Announcement's proof is computed over it.
         Serial.print(F("Child accepted.  Index:"));Serial.println(_myChild_available_Index);
         Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
         Serial.print(gblNetwork.panID,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].ChildAddress,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].LatchKeyValue,HEX);Serial.print(F("\t"));Serial.println(gblNetwork.children[_myChild_available_Index].RelationshipType,HEX);
@@ -2073,14 +2226,14 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         _WHAT_Tx_Packet.destination = gblNetwork.children[_myChild_available_Index].ChildAddress;   // Send this to the child.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
         uint8_t _index = 0;
-        _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
-        _WHAT_Tx_Packet.payload[_index++] = 7; //MID size (for the 2nd message).
-        _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);// 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
+        _WHAT_Tx_Packet.payload[_index++] = 11; //Total payload length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 10; //MID size (for the 2nd message).
+        _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);// 1 byte length, 2 byte command, 2 byte child address, 4 byte proof // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
         _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03); //in order to support multibyte MIDs, put the high byte first.
         _WHAT_Tx_Packet.payload[_index++] = highByte(_WHAT_Rx_Packet.sourceaddress);  // FIX (Nov 24, 2026): the child address and latchkey the format calls for were never sent, so the child's confirmation check could never pass.
         _WHAT_Tx_Packet.payload[_index++] = lowByte(_WHAT_Rx_Packet.sourceaddress);
-        _WHAT_Tx_Packet.payload[_index++] = highByte(_Rx_Offered_Latchkey);
-        _WHAT_Tx_Packet.payload[_index++] = lowByte(_Rx_Offered_Latchkey);
+        // STEP 1 (Nov 24, 2026): a PROOF replaces the latchkey echo - WHAT_Mix32(latchkey, the child's confirm nonce, PANID | child address). Only a parent that actually received and stored the latchkey can produce it, and the latchkey itself never crosses the air a second time.
+        WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(_Rx_Offered_Latchkey, _Rx_Confirm_Nonce, (((uint32_t)gblNetwork.panID) << 16) | _WHAT_Rx_Packet.sourceaddress)); _index += 4;
          WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
           WHAT_StoreEEPROM();
@@ -2095,12 +2248,12 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source ddress of this device.
         uint8_t _index = 0;
-        _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
-        _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 7; //MID length (including this byte)
         _WHAT_Tx_Packet.payload[_index++] = highByte(ABANDON_CHILD_05);
         _WHAT_Tx_Packet.payload[_index++] = lowByte(ABANDON_CHILD_05);
-        _WHAT_Tx_Packet.payload[_index++] = highByte(_Rx_Offered_Latchkey);  // Send back the Latchkey ID as message confirmation. FIX (Nov 24, 2026): was _WHAT_Rx_Packet.payload[_index+4/+5] with the local build index - it read bytes 8/9 of the received packet, past its end.
-        _WHAT_Tx_Packet.payload[_index++] = lowByte(_Rx_Offered_Latchkey);  // Send back the Latchkey ID as message confirmation
+        // STEP 1 (Nov 24, 2026): send back a PROOF of the latchkey as message confirmation, never the latchkey itself - same abandon-proof context the child's own abandon uses: WHAT_Mix32(latchkey, child address, parent address). (FIX history, Nov 24, 2026: this once read bytes 8/9 of the received packet, past its end.)
+        WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(_Rx_Offered_Latchkey, _WHAT_Rx_Packet.sourceaddress, mySourceAddress)); _index += 4;
             WHAT_TransmitPacket(_WHAT_Tx_Packet);
       }
     }
@@ -2123,11 +2276,19 @@ void Rx_NETWORK_JOIN_COMPLETE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   //The parent confirmed the acceptance of the child.  Store the pertinent information.
   //Serial.println(F("Rx_Network    Join Complete"));
 // Rx Message flags
-  // verify this message was from the proposed parent and the latchkey matches.
-  // NETWORK_JOIN_COMPLETE_03 payload layout: length, MID length, command, 2 byte child address, 2 byte latchkey.
-  uint16_t _Rx_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
+  // verify this message was from the proposed parent, is addressed to this
+  // device's tentative address, and carries a valid proof.
+  // NETWORK_JOIN_COMPLETE_03 payload layout: length, MID length, command, 2 byte child address, 4 byte proof.
+  uint16_t _Rx_ChildAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+  uint32_t _Rx_Proof = WHAT_PayloadGet32(_WHAT_Rx_Packet.payload, _index + 5);  // STEP 1: proof at +5..+8.
+  // STEP 1 (Nov 24, 2026): the parent proves it holds the latchkey by mixing
+  // it with the confirm nonce this device sent in its ACCEPT - the latchkey
+  // itself is never re-transmitted, so this check replaces the old
+  // latchkey-equality check. Parent and address are still tentative in
+  // gblJoining here - the identity is committed only after this check passes.
+  uint32_t _Expected_Proof = WHAT_Mix32(myLatchKeyNumber, gblJoining.confirmNonce, (((uint32_t)gblJoining.panID) << 16) | gblJoining.sourceAddress);
 
-  if((_WHAT_Rx_Packet.sourceaddress == gblJoining.parent ) && (_Rx_Offered_Latchkey == myLatchKeyNumber)) // FIX (Nov 24, 2026): parent is still tentative in gblJoining here - the identity is committed only after this check passes.
+  if((_WHAT_Rx_Packet.sourceaddress == gblJoining.parent ) && (_Rx_ChildAddress == gblJoining.sourceAddress) && (_Rx_Proof == _Expected_Proof))
   {
    gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = true;   // Preeemie accepted a proposed parent 
 
@@ -2182,12 +2343,14 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
       _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
       _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
       uint8_t _index = 0;
-      _WHAT_Tx_Packet.payload[_index++] = 6; //include the length of the proposed child address.
-      _WHAT_Tx_Packet.payload[_index++] = 5;   //MID size (for the 2nd message).
+      _WHAT_Tx_Packet.payload[_index++] = 8; //include the length of the proposed child address.
+      _WHAT_Tx_Packet.payload[_index++] = 7;   //MID size (for the 2nd message).
       _WHAT_Tx_Packet.payload[_index++] = highByte(PROPOSE_CHILD_NUMBER_05);// 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
       _WHAT_Tx_Packet.payload[_index++] = lowByte(PROPOSE_CHILD_NUMBER_05); //in order to support multibyte MIDs, put the high byte first.
       _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.sourceAddress);//in order to support multibyte MIDs, put the high byte first.
       _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.sourceAddress);
+      _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): temp ID echo - binds this offer to the preemie whose search was heard.
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
       WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
       gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_PARENT_06;  // these are prospective parents offering free addresses.
@@ -2216,16 +2379,17 @@ void Rx_ABANDON_CHILD_05 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
    while (_i<=ChildMaxIndex)
    {
       if(_WHAT_Rx_Packet.sourceaddress == gblNetwork.children[_i].ChildAddress)
-      { // the child has been found.  Before blanking, make sure it really was this child by checking the latchkey value.
-        if(((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]) == gblNetwork.children[_i].LatchKeyValue)
+      { // the child has been found.  Before blanking, make sure it really was this child by checking the proof.
+        // STEP 1 (Nov 24, 2026): the message carries WHAT_Mix32(latchkey, child address, parent address) at +3..+6 - the latchkey itself is no longer transmitted, so the stored latchkey is never compared against anything that crossed the air.
+        if(WHAT_PayloadGet32(_WHAT_Rx_Packet.payload, _index + 3) == WHAT_Mix32(gblNetwork.children[_i].LatchKeyValue, _WHAT_Rx_Packet.sourceaddress, mySourceAddress))
         { // This is the child.  Remove it from the index.
             gblNetwork.children[_i].ChildAddress = 0xFFFF;
-            gblNetwork.children[_i].LatchKeyValue = 0xFFFF;
+            gblNetwork.children[_i].LatchKeyValue = 0xFFFFFFFF;
             gblNetwork.children[_i].RelationshipType = 0;
             gblNetwork.children[_i].Security = 0xFFFF;
         }//End Child removed
         else
-        {// Security breach... incorrect latchkey value.  Note the security breach (not yet implimented)
+        {// Security breach... incorrect proof value.  Note the security breach (not yet implimented)
           WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
           _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
           _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
@@ -2236,7 +2400,7 @@ void Rx_ABANDON_CHILD_05 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
           _WHAT_Tx_Packet.payload[_index++] = 4; //MID length (including this byte)
           _WHAT_Tx_Packet.payload[_index++] = highByte(Security_Breach_04);
           _WHAT_Tx_Packet.payload[_index++] = lowByte(Security_Breach_04);
-          _WHAT_Tx_Packet.payload[_index++] = SB_BUMP;  //(bump)   A parent sees a request to abandon child, but the latchkey value is incorrect.
+          _WHAT_Tx_Packet.payload[_index++] = SB_BUMP;  //(bump)   A parent sees a request to abandon child, but the proof value is incorrect.
               WHAT_TransmitPacket(_WHAT_Tx_Packet);
         }// End security breach
        _i = ChildMaxIndex + 1;   // discontinue the search once the child is found by making the index greater than the highest index.
