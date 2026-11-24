@@ -1,6 +1,6 @@
 #ifndef __WHATCommands_h_
 #define __WHATCommands_h_
-#define WHAT_COMMAND_VERSION 26112401 
+#define WHAT_COMMAND_VERSION 26112402
 
 //#include "z_WHAT_Command.h"
 
@@ -177,20 +177,21 @@
 */
 
 //New device joining network (preemie) (corresponding responses from network in the 0xF01? section)
-#define REQUEST_JOIN_NETWORK_03  0xF001 // 1 byte length, 2 byte command   // preemie requests joining network listed in PANID (invalid for PAN 0xFFFF)
+#define REQUEST_JOIN_NETWORK_03  0xF001 // 1 byte length, 2 byte command, 2 byte preemie temp ID   // preemie requests joining network listed in PANID (invalid for PAN 0xFFFF). STEP 1 (Nov 24, 2026): the temp ID is a random per-attempt ID that binds this join attempt - offers, the allow, and the accept must echo it, so a second preemie (or a jokester) cannot claim-jump the allow window.
 #define CHOOSE_NETWORK_05        0xF003 // 1 byte length, 2 byte command, 2 byte PANID - PANID of 0xFFFF must be used in transmission.  Other networks should send NETWORK_JOIN_ABORT_03 to stop trying to join this device.
                // Preemie assigns itself the PANID of this network for further connection activities.
-#define ACCEPT_PARENT_06         0xF005 // 1 byte length, 2 byte command, 2 byte latchkey, 1 byte relation type // preemie accepts offer from parent, and proposes latch key value (derived from its timer upon sending)
+#define ACCEPT_PARENT_06         0xF005 // 1 byte length, 2 byte command, 2 byte parent, 4 byte latchkey, 1 byte relation type, 4 byte confirm nonce, 2 byte preemie temp ID // preemie accepts offer from parent, and proposes latch key value. STEP 1 (Nov 24, 2026): latchkey is now 32 bits and randomly generated (was 16 bits from millis()); the nonce lets the parent prove it holds the latchkey in NETWORK_JOIN_COMPLETE_03 without ever re-sending it; the temp ID must match the one in this preemie's REQUEST_JOIN_NETWORK_03.
 #define REQUEST_SECURITY_KEY_03  0xF007 // 1 byte length, 2 byte command   // Upon reciept of this message, the parent accepts this child.
 
 //New device is joining network (mature response)  (see requests from child in the 0x0? section)
-#define NETWORK_ALERT_PREEMIE_03	  0xF011	  // 1 byte length, 2 byte command  // A preemie is trying to gain access to the network.
-#define NETWORK_ALLOW_PREEMIE_04	  0xF013	  // 1 byte length, 2 byte command, 1 byte confirm/deny, Any network button can be pressed to allow the addition of a preemie.  this message provides that indication.
-#define PROPOSE_CHILD_NUMBER_05     0xF015    // 1 byte length, 2 byte command, 2 byte proposed child address // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
+#define NETWORK_ALERT_PREEMIE_03	  0xF011	  // 1 byte length, 2 byte command, 2 byte preemie temp ID  // A preemie is trying to gain access to the network. STEP 1 (Nov 24, 2026): carries the temp ID from the preemie's search, so members who missed the search itself can still bind their offers to this join attempt.
+#define NETWORK_ALLOW_PREEMIE_04	  0xF013	  // 1 byte length, 2 byte command, 1 byte confirm/deny, 2 byte preemie temp ID. Any network button can be pressed to allow the addition of a preemie.  this message provides that indication. STEP 1 (Nov 24, 2026): the temp ID echo lets the preemie verify this allow is for ITS join attempt.
+#define PROPOSE_CHILD_NUMBER_05     0xF015    // 1 byte length, 2 byte command, 2 byte proposed child address, 2 byte preemie temp ID // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02). STEP 1 (Nov 24, 2026): the temp ID echo binds the offer to one specific preemie.
 
-#define NETWORK_JOIN_COMPLETE_03    0xF020   // 1 byte length, 2 byte command  // Sent by new parent (Birth Announcement)
+#define NETWORK_JOIN_COMPLETE_03    0xF020   // 1 byte length, 2 byte command, 2 byte child address, 4 byte proof  // Sent by new parent (Birth Announcement). STEP 1 (Nov 24, 2026): the proof is WHAT_Mix32(latchkey, confirm nonce, PANID|child address) - the parent proves it received and stored the latchkey WITHOUT re-transmitting it (the old format echoed the latchkey itself).
 #define NETWORK_JOIN_ABORT_03		    0xF022	 // 1 byte length, 2 byte command  //the button was HELD on some device on the network being joined.
-#define ABANDON_CHILD_05            0xF026   // 1 byte length, 2 byte command, 2 byte latchkey. (destination is parent address, source is child)
+#define NETWORK_HEARTBEAT_03        0xF024   // 1 byte length, 2 byte command  // STEP 1 (Nov 24, 2026): liveness heartbeat. A member that has transmitted nothing for WHAT_HEARTBEAT_INTERVAL_MS broadcasts this, so silence on the network always means absence, never just quiet. No reply, no action on receipt - the generic same-PANID reception already resets the alive timer.
+#define ABANDON_CHILD_05            0xF026   // 1 byte length, 2 byte command, 4 byte proof. (destination is parent address, source is child) STEP 1 (Nov 24, 2026): the proof is WHAT_Mix32(latchkey, child address, parent address) - the latchkey itself is no longer transmitted (the old format sent it in the clear).
 
 #define PARENT_GIVE_SECURITY_KEY_17 0xF030  //1 byte length, 2 byte command, 14 bytes with latchkey followed by security key.
 
