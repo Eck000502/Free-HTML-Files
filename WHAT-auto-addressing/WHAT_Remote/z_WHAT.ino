@@ -1481,38 +1481,40 @@ void WHAT_StateCheck(void)
               #endif
                if(gblJoining.sourceAddress < 0xFFFF)
                 {  
-                  gblNetwork.panID = gblJoining.panID;
-                  WHAT_set_pan(gblNetwork.panID);
-                  mySourceAddress = gblJoining.sourceAddress;
-                  WHAT_set_SourceAddress(mySourceAddress);
+                  // FIX (Nov 24, 2026): the identity is NOT committed here anymore. The offered
+                  // PANID/address/parent stay tentative in gblJoining until the parent confirms
+                  // with NETWORK_JOIN_COMPLETE_03 (see WHAT_CONFIRM_NEW_CHILD). If confirmation
+                  // never comes, this device is still a preemie (identity FFFF, EEPROM untouched)
+                  // and the abort path returns it to preemie search on its own.
                   WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
                   _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
                   _WHAT_Tx_Packet.pan_id = gblJoining.panID;
                   _WHAT_Tx_Packet.sourceaddress = gblJoining.sourceAddress;
-                  gblNetwork.parentAddress = gblJoining.parent;
-                  myLatchKeyNumber = (uint16_t)millis();  //Create a random latch-key number
+                  myLatchKeyNumber = (uint16_t)millis();  //Create a random latch-key number (tentative until confirmed)
                   //myChildIndex = 0;   // Just in case for some reason this was not already 0 (like if this device was removed from another network).
                   // Now send a message to confirm which parent was chosen.
                   //ACCEPT_PARENT_06
-                  _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
-                  _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
-                  _WHAT_Tx_Packet.destination = gblNetwork.parentAddress;   // Direct this message at the parent that accepted it.
+                  _WHAT_Tx_Packet.pan_id = gblJoining.panID;
+                  _WHAT_Tx_Packet.sourceaddress = gblJoining.sourceAddress;
+                  _WHAT_Tx_Packet.destination = gblJoining.parent;   // Direct this message at the parent that accepted it.
                   // ACCEPT_PARENT_06         0xF005 // 1 byte length, 2 byte command, 2 byte parent, 2 byte latchkey, 1 byte relation type // preemie accepts offer from parent, and proposes latch key value (derived from its timer upon sending)
                   uint8_t _index = 0;
-                  _WHAT_Tx_Packet.payload[_index++] = 7; //Total payload length (including this byte)
-                  _WHAT_Tx_Packet.payload[_index++] = 6; //MID length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = 9; //Total payload length (including this byte)
+                  _WHAT_Tx_Packet.payload[_index++] = 8; //MID length (including this byte)
                   _WHAT_Tx_Packet.payload[_index++] = highByte(ACCEPT_PARENT_06);   // 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
                   _WHAT_Tx_Packet.payload[_index++] = lowByte(ACCEPT_PARENT_06);  //in order to support multibyte MIDs, put the high byte first.
+                  _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.parent); // FIX (Nov 24, 2026): the parent field the documented format calls for was never sent - the parent read the latchkey as the parent address and rejected the join.
+                  _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.parent);
                   _WHAT_Tx_Packet.payload[_index++] = highByte(myLatchKeyNumber); //in order to support multibyte MIDs, put the high byte first.
                   _WHAT_Tx_Packet.payload[_index++] = lowByte(myLatchKeyNumber);
                   _WHAT_Tx_Packet.payload[_index++] = WHAT_PERMANENT;           // All devices are permanent at this point.
                       WHAT_TransmitPacket(_WHAT_Tx_Packet);
-    
-                  //gblMailbox.networkState = WHAT_PRE_NET_ALIVE;
-                  WHAT_StoreEEPROM();
+
+                  // FIX (Nov 24, 2026): no WHAT_StoreEEPROM() here - the identity is only
+                  // committed (globals + EEPROM) when the join is confirmed.
                   Serial.println(F("Tx Parent Chosen"));
                   Serial.println(F("PANID\tmySourceAddress\tmyLatchKeyNumber\tmyParentAddress"));
-                  Serial.print(gblNetwork.panID,HEX);Serial.print("\t");Serial.print(mySourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(gblNetwork.parentAddress,HEX);
+                  Serial.print(gblJoining.panID,HEX);Serial.print("\t");Serial.print(gblJoining.sourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(gblJoining.parent,HEX);
                   //gblMailbox.networkButton = LOW;   // indicate that the button is used so it will not roll into the next function.
                   gblMailbox.networkState = WHAT_PRE_CONFIRM_NEW_CHILD;  // Network light to indicate someone else's network was sucessfully joined.
 
@@ -1540,7 +1542,7 @@ void WHAT_StateCheck(void)
           gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_NETWORK_JOIN_COMPLETE_03; // Message callback set here to collect the responses
           gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
            gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = false;    // Clear the message flag so only new messages will be used.
-        gblScratch.timer1 <= millis() + 1000;
+        gblScratch.timer1 = millis() + 1000;  // FIX (Nov 24, 2026): was '<=' (a comparison, result discarded) - the confirm window never got set, so 'Join timed out' fired almost immediately.
         gblMailbox.networkState = WHAT_CONFIRM_NEW_CHILD;  //blip of red indication network was not joined.
 
       }//   break;
@@ -1571,6 +1573,15 @@ void WHAT_StateCheck(void)
           {
             gblScratch.timer1 = millis() + 1000;     // Just hold the light red for 1 second to indicate the network join aborted.
             Serial.print(F("Network join confirmed ")); Serial.println(millis());
+            // FIX (Nov 24, 2026): commit the tentative identity only now that the parent
+            // has confirmed this device was added. Before this moment the device was
+            // still a preemie in its globals and in EEPROM.
+            gblNetwork.panID = gblJoining.panID;
+            WHAT_set_pan(gblNetwork.panID);
+            mySourceAddress = gblJoining.sourceAddress;
+            WHAT_set_SourceAddress(mySourceAddress);
+            gblNetwork.parentAddress = gblJoining.parent;
+            WHAT_StoreEEPROM();
           // gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;    
           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 50 );
           gblMailbox.networkState = WHAT_NEW_CHILD_CONFIRMED;  //blip of red indication network was not joined.
@@ -1821,13 +1832,17 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
              uint8_t _index = 0;
-             _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte)
-             _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte)
+             _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
+             _WHAT_Tx_Packet.payload[_index++] = 7; //MID length (including this byte)
              _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03);
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblScratch.u16_1);  // FIX (Nov 24, 2026): child address + latchkey, handed off by Rx_ACCEPT_PARENT_06 - the broadcast announcement is the copy an unconfirmed child can actually receive (its address is still FFFF, so the directed copy is filtered out).
+            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblScratch.u16_1);
+            _WHAT_Tx_Packet.payload[_index++] = highByte(gblScratch.u16_2);
+            _WHAT_Tx_Packet.payload[_index++] = lowByte(gblScratch.u16_2);
            WHAT_TransmitPacket(_WHAT_Tx_Packet);
            Serial.print(F("\nBirth Announcement: "));
-           gblScratch.timer1 <= millis() + 2000;
+           gblScratch.timer1 = millis() + 2000;  // FIX (Nov 24, 2026): was '<=' (a comparison, result discarded) - the confirmed-state hold time never got set.
           gblMailbox.networkState = WHAT_NEW_CHILD_CONFIRMED; // return to normal light operation.
         }
      
@@ -2042,8 +2057,10 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
       if(gblNetwork.children[_myChild_available_Index].ChildAddress == 0xFFFF)
       {
         gblNetwork.children[_myChild_available_Index].ChildAddress = _WHAT_Rx_Packet.sourceaddress;
-        gblNetwork.children[_myChild_available_Index].LatchKeyValue = ((_WHAT_Rx_Packet.payload[_index+4]*0x100) +_WHAT_Rx_Packet.payload[_index+5]);
-        gblNetwork.children[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+6];
+        gblNetwork.children[_myChild_available_Index].LatchKeyValue = _Rx_Offered_Latchkey;  // FIX (Nov 24, 2026): was read at +4/+5, one field early; _Rx_Offered_Latchkey already holds the value parsed at the documented offsets (+5/+6).
+        gblNetwork.children[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+7];  // FIX (Nov 24, 2026): was +6; the relation byte follows the latchkey in the documented format.
+        gblScratch.u16_1 = _WHAT_Rx_Packet.sourceaddress;  // Hand the accepted child's address to the WHAT_NEW_CHILD_OFFER state for the Birth Announcement.
+        gblScratch.u16_2 = _Rx_Offered_Latchkey;           // Same hand-off for the latchkey.
         Serial.print(F("Child accepted.  Index:"));Serial.println(_myChild_available_Index);
         Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
         Serial.print(gblNetwork.panID,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].ChildAddress,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].LatchKeyValue,HEX);Serial.print(F("\t"));Serial.println(gblNetwork.children[_myChild_available_Index].RelationshipType,HEX);
@@ -2056,10 +2073,14 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         _WHAT_Tx_Packet.destination = gblNetwork.children[_myChild_available_Index].ChildAddress;   // Send this to the child.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
         uint8_t _index = 0;
-        _WHAT_Tx_Packet.payload[_index++] = 4; //include the length of the proposed child address.
-        _WHAT_Tx_Packet.payload[_index++] = 3; //MID size (for the 2nd message).
+        _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
+        _WHAT_Tx_Packet.payload[_index++] = 7; //MID size (for the 2nd message).
         _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);// 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
         _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03); //in order to support multibyte MIDs, put the high byte first.
+        _WHAT_Tx_Packet.payload[_index++] = highByte(_WHAT_Rx_Packet.sourceaddress);  // FIX (Nov 24, 2026): the child address and latchkey the format calls for were never sent, so the child's confirmation check could never pass.
+        _WHAT_Tx_Packet.payload[_index++] = lowByte(_WHAT_Rx_Packet.sourceaddress);
+        _WHAT_Tx_Packet.payload[_index++] = highByte(_Rx_Offered_Latchkey);
+        _WHAT_Tx_Packet.payload[_index++] = lowByte(_Rx_Offered_Latchkey);
          WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
           WHAT_StoreEEPROM();
@@ -2078,8 +2099,8 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
         _WHAT_Tx_Packet.payload[_index++] = highByte(ABANDON_CHILD_05);
         _WHAT_Tx_Packet.payload[_index++] = lowByte(ABANDON_CHILD_05);
-        _WHAT_Tx_Packet.payload[_index++] = _WHAT_Rx_Packet.payload[_index+4];  // Send back the Latchkey ID as message confirmation
-        _WHAT_Tx_Packet.payload[_index++] = _WHAT_Rx_Packet.payload[_index+5];  // Send back the Latchkey ID as message confirmation
+        _WHAT_Tx_Packet.payload[_index++] = highByte(_Rx_Offered_Latchkey);  // Send back the Latchkey ID as message confirmation. FIX (Nov 24, 2026): was _WHAT_Rx_Packet.payload[_index+4/+5] with the local build index - it read bytes 8/9 of the received packet, past its end.
+        _WHAT_Tx_Packet.payload[_index++] = lowByte(_Rx_Offered_Latchkey);  // Send back the Latchkey ID as message confirmation
             WHAT_TransmitPacket(_WHAT_Tx_Packet);
       }
     }
@@ -2103,9 +2124,10 @@ void Rx_NETWORK_JOIN_COMPLETE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   //Serial.println(F("Rx_Network    Join Complete"));
 // Rx Message flags
   // verify this message was from the proposed parent and the latchkey matches.
-  uint16_t _Rx_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 4] * 0x100) + _WHAT_Rx_Packet.payload[_index + 5]);
+  // NETWORK_JOIN_COMPLETE_03 payload layout: length, MID length, command, 2 byte child address, 2 byte latchkey.
+  uint16_t _Rx_Offered_Latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
 
-  if((_WHAT_Rx_Packet.sourceaddress == gblNetwork.parentAddress ) && (_Rx_Offered_Latchkey == myLatchKeyNumber))
+  if((_WHAT_Rx_Packet.sourceaddress == gblJoining.parent ) && (_Rx_Offered_Latchkey == myLatchKeyNumber)) // FIX (Nov 24, 2026): parent is still tentative in gblJoining here - the identity is committed only after this check passes.
   {
    gblRxFlags.f_NETWORK_JOIN_COMPLETE_03 = true;   // Preeemie accepted a proposed parent 
 
