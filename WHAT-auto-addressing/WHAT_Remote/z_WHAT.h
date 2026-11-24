@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112401
+#define WHAT_SOFTWARE_VERSION 26112402
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -229,10 +229,10 @@ struct WHAT_Network
 WHAT_Network gblNetwork;
 
 // The network-alive deadline stays a standalone global, NOT a member of gblNetwork:
-// its value is millis()+5000 - a runtime value, not a compile-time constant. Putting it
+// its value is millis()+20000 - a runtime value, not a compile-time constant. Putting it
 // inside the struct would make the whole struct dynamically initialized, and the compiler
 // then keeps a second template copy of the children array in RAM (+105 bytes on a Nano).
-double gbl_t_NetworkAlive = millis()+5000;  // Timeout - when messages on this PANID arrive, reset this.
+double gbl_t_NetworkAlive = millis()+20000;  // Timeout - when messages on this PANID arrive, reset this.
 bool f_gbl_t_NetworkAlive = true;           // Flag that other network nodes have been seen using THIS PANID
 
 // (gblNetwork.panID, gblNetwork.parentAddress, gblNetwork.hasChildren and the network-alive timer/flag moved into
@@ -251,7 +251,7 @@ bool f_gbl_t_NetworkAlive = true;           // Flag that other network nodes hav
 //WHAT_LedColor * _network_light_color = &gblMailbox.networkStateColor;  // This will mirror the Light color to the main program.
 
 //void * _Loop_Network_Button_Light();
-#define GLB_T_NETWORKALIVE_RESET 30000;
+#define GLB_T_NETWORKALIVE_RESET 20000
 // (gbl_t_NetworkAlive / f_gbl_t_NetworkAlive moved into gblNetwork - Nov 2026 rename pass.)
 
 double gbl_t_flash = millis();   // Network-light blink timing, shared by the light routines in z_WHAT.ino.
