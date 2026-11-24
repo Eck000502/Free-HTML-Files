@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112402
+#define WHAT_SOFTWARE_VERSION 26112403
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -196,7 +196,9 @@ struct WHAT_Joining
   uint16_t panID = 0xFF;          // PANID of the network being joined.
   uint16_t sourceAddress = 0xFF;  // Lowest new address offered.
   uint16_t parent = 0xFF;         // Parent offering that address.
-  uint16_t latchkey = 0xFF;       // Latchkey offered by the parent with the lowest offered address.
+  uint32_t latchkey = 0xFFFFFFFF; // Latchkey offered by the parent with the lowest offered address. (32-bit since STEP 1, Nov 24, 2026.)
+  uint16_t tempID = 0xFFFF;       // STEP 1 (Nov 24, 2026): random per-attempt ID binding one join attempt. On a preemie: MY id, generated when a search begins. On a member: the id of the preemie whose search was last heard.
+  uint32_t confirmNonce = 0;      // STEP 1 (Nov 24, 2026): preemie-side only - the nonce sent in ACCEPT_PARENT_06, against which the parent's NETWORK_JOIN_COMPLETE_03 proof is checked.
 };
 WHAT_Joining gblJoining;
 // NOTE (Nov 2026 rename pass): _WHAT_Child_Used is no longer a global - it is a local
@@ -205,7 +207,7 @@ WHAT_Joining gblJoining;
 struct ChildType
 {
   uint16_t ChildAddress = 0xFFFF;
-  uint16_t LatchKeyValue = 0xFFFF;
+  uint32_t LatchKeyValue = 0xFFFFFFFF;  // 32-bit since STEP 1 (Nov 24, 2026) - was a 16-bit value derived from millis().
   uint8_t  RelationshipType = 0;
   uint16_t  Security = 0xFFFF;
 };
@@ -228,12 +230,20 @@ struct WHAT_Network
 };
 WHAT_Network gblNetwork;
 
+// STEP 1 (Nov 24, 2026): the liveness heartbeat interval. Every member guarantees the
+// network at least one transmission per interval (WHATHouseKeeping sends a
+// NETWORK_HEARTBEAT_03 if the device has been transmit-quiet for the whole interval).
+// The network-alive timeout below is DERIVED from this (Gary's rule: 2 x heartbeat) -
+// one missed heartbeat is tolerated, two flip the alive light from green to blue.
+#define WHAT_HEARTBEAT_INTERVAL_MS 10000
+
 // The network-alive deadline stays a standalone global, NOT a member of gblNetwork:
 // its value is millis()+20000 - a runtime value, not a compile-time constant. Putting it
 // inside the struct would make the whole struct dynamically initialized, and the compiler
 // then keeps a second template copy of the children array in RAM (+105 bytes on a Nano).
-double gbl_t_NetworkAlive = millis()+20000;  // Timeout - when messages on this PANID arrive, reset this.
+double gbl_t_NetworkAlive = millis()+(2 * WHAT_HEARTBEAT_INTERVAL_MS);  // Timeout - when messages on this PANID arrive, reset this.
 bool f_gbl_t_NetworkAlive = true;           // Flag that other network nodes have been seen using THIS PANID
+double gbl_t_NextHeartbeat = millis()+WHAT_HEARTBEAT_INTERVAL_MS;  // STEP 1: deadline for this device's next guaranteed transmission - re-armed by WHAT_TransmitPacket on every send, watched by WHATHouseKeeping. Standalone for the same reason as gbl_t_NetworkAlive above.
 
 // (gblNetwork.panID, gblNetwork.parentAddress, gblNetwork.hasChildren and the network-alive timer/flag moved into
 //  the WHAT_Network group defined just below the macros that follow - Nov 2026 rename pass.)
@@ -251,7 +261,7 @@ bool f_gbl_t_NetworkAlive = true;           // Flag that other network nodes hav
 //WHAT_LedColor * _network_light_color = &gblMailbox.networkStateColor;  // This will mirror the Light color to the main program.
 
 //void * _Loop_Network_Button_Light();
-#define GLB_T_NETWORKALIVE_RESET 20000
+#define GLB_T_NETWORKALIVE_RESET (2 * WHAT_HEARTBEAT_INTERVAL_MS)  // Gary's rule (Nov 24, 2026): the alive timeout is twice the heartbeat interval, never a free-standing number.
 // (gbl_t_NetworkAlive / f_gbl_t_NetworkAlive moved into gblNetwork - Nov 2026 rename pass.)
 
 double gbl_t_flash = millis();   // Network-light blink timing, shared by the light routines in z_WHAT.ino.
