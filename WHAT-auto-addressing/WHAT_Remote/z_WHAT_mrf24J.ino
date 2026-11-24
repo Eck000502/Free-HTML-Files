@@ -375,7 +375,7 @@ void Tx_What_Que(void)  // If more that one message is being send, this will sen
     
       Mrf24j_Write(MRF24J_TXNCON, MRF24J_TXNTRIG);  // Transmit the packet
       //Serial.println(Mrf24j_Read(MRF24J_TXSTAT),BIN);
-      gblQueues.txSentIndex++; if(gblQueues.txSentIndex > TX_BUFFER_DEPTH) gblQueues.txSentIndex=0;
+      gblQueues.txSentIndex++; if(gblQueues.txSentIndex >= TX_BUFFER_DEPTH) gblQueues.txSentIndex=0;  // FIX (Nov 24, 2026): was '>' - the sent index could step to 3, one past the end of the 3-packet queue, and Tx_What_Que then transmitted out-of-bounds memory as a packet (the 'Tx 0' phantom send). The queue-add side already wrapped with '>='.
       #ifdef TX_MONITOR
       Serial.print("Tx ");Serial.println(gblQueues.txSentIndex);
       #endif
