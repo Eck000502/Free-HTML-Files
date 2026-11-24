@@ -1,4 +1,4 @@
-#define WHAT_REMOTECONTROL_VERSION 26112402   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTECONTROL_VERSION 26112403   // Revision: YYMMDD## - bump ## on any change to this file.
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D to match the Nov 24, 2026 base EEPROM layout - 32-bit latchkeys.)
 
@@ -179,7 +179,7 @@ void setup() {
 // *********************************************************************
 void loop() {
   // put your main code here, to run repeatedly:
-//  Loop_Network_Button_Light();    // checks the RAW button reserved for networking, and outputs the light state.
+  Loop_Network_Button_Light();    // checks the RAW button reserved for networking, and outputs the light state. (PORT Nov 24, 2026: call enabled - it was commented out, which left BOTH the network button unread and the RGB network light dark.)
   Loop_WHAT(); // WHAT.ino -  Monitors and communicates for Wireless Home Automation and Telemetry
   //checkVoltage(); //(this routine)  Measures the voltage powering this device.
   //Loop_Tmptr();
