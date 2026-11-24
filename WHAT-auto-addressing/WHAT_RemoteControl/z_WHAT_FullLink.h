@@ -1,6 +1,6 @@
 #ifndef __WHAT_FULLLINK_h
 #define __WHAT_FULLLINK_h
-#define WHAT_FULLLINK_VERSION 26112401
+#define WHAT_FULLLINK_VERSION 26112402
 
 /*
 #include "z_WHAT_FullLink.h"   // -This routine- as part of the WHAT system.
@@ -40,7 +40,7 @@ Then as additional devices are added, control can be re-arranged or expanded.
       
 */
 
-#define LINK_MONITOR  1
+//#define LINK_MONITOR  1   // Commented out in the WHAT_RemoteControl build (Nov 24, 2026) - see z_WHAT.h note.
 
 // These are only going to be DIGITAL values.
 #define NUM_OUTPUTS 3   // (Limit to 8) Each OUPUT can hold a link to being controlled by an INPUT.
