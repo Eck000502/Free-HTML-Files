@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112404
+#define WHAT_NETWORK_VERSION 26112405
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -331,23 +331,27 @@ void WHAT_begin(void)
   WHAT_EEPROM();  // restore any WHAT parameters from EEPROM (Source address/PANID, etc...)
 
   gblMailbox.networkState = WHAT_STARTUP;
+  #ifdef CHILD_MONITOR
   Serial.print(F("Network State set to 'WHAT_STARTUP' "));Serial.println(gblMailbox.networkState,DEC);
 
   Serial.println(F("PANID\tmySourceAddress\tgblNetwork.parentAddress\tmyLatchkey\tgblMailbox.networkState"));
-  Serial.print(gblNetwork.panID,HEX);Serial.print(" \t");Serial.print(mySourceAddress,HEX);Serial.print(" \t\t");Serial.print(gblNetwork.parentAddress,HEX);Serial.print(" \t");Serial.print(myLatchKeyNumber,HEX);Serial.print(" \t\t\t");Serial.println(gblMailbox.networkState,HEX);
+  Serial.print(gblNetwork.panID,HEX);Serial.print(F(" \t"));Serial.print(mySourceAddress,HEX);Serial.print(F(" \t\t"));Serial.print(gblNetwork.parentAddress,HEX);Serial.print(F(" \t"));Serial.print(myLatchKeyNumber,HEX);Serial.print(F(" \t\t\t"));Serial.println(gblMailbox.networkState,HEX);
   #ifdef __WHAT_FULLLINK_h
     Serial.print(F("Links: 0x"));
     for(uint8_t _i=0; _i<numWHATLinks; _i++)
     {
-      Serial.print(gblLink.links[_i],HEX);Serial.print(" \t0x");
+      Serial.print(gblLink.links[_i],HEX);Serial.print(F(" \t0x"));
     }
   #endif
-  Serial.println(" ");
+  Serial.println(F(" "));
+  #endif  // CHILD_MONITOR
   mrf.init();
   Mrf24j_begin (gblNetwork.panID, mySourceAddress);
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 // TOC  Register WHAT messages for reception
+  #ifdef CHILD_MONITOR
   Serial.println(F("WHAT Auto-addressing enabled"));
+  #endif  // CHILD_MONITOR
   RegisterWHATMessage (REQUEST_JOIN_NETWORK_03, &Rx_REQUEST_JOIN_NETWORK_03); // This is an entry that will not change.
   RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
   RegisterWHATMessage (PROPOSE_CHILD_NUMBER_05, &Rx_PROPOSE_CHILD_NUMBER_05); // This is an entry that will not change.
@@ -407,16 +411,18 @@ void RX_WHAT (void)
   static uint8_t _st_RxbufferIndex = 0;
   if (WHAT_Buffer_RX(gblQueues.rxPacket,_st_RxbufferIndex) )
   { //TOC  WHAT_Buffer_RX returns TRUE if there is a new message in the recieve buffer.
-    Serial.print("\nRx WHAT");
+    #ifdef RX_MONITOR
+    Serial.print(F("\nRx WHAT"));
+    #endif  // RX_MONITOR
 
        #ifdef DX_ONLY
-        Serial.print("\nGBL_rx_index: ");Serial.print(gblRadio.rxIndex);
-        Serial.print("\t_RxbufferIndex: ");Serial.print(_st_RxbufferIndex);
+        Serial.print(F("\nGBL_rx_index: "));Serial.print(gblRadio.rxIndex);
+        Serial.print(F("\t_RxbufferIndex: "));Serial.print(_st_RxbufferIndex);
         Serial.println(F("\nLength\tCONTROL\tRx pan_id\tdestination\tsource"));
-        Serial.print(gblQueues.rxPacket.frame_length,DEC);Serial.print("\t  ");
-        Serial.print(gblQueues.rxPacket.frame_control,HEX);Serial.print("\t  ");
-        Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print("\t\t\t  ");
-        Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print("\t  ");
+        Serial.print(gblQueues.rxPacket.frame_length,DEC);Serial.print(F("\t  "));
+        Serial.print(gblQueues.rxPacket.frame_control,HEX);Serial.print(F("\t  "));
+        Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print(F("\t\t\t  "));
+        Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print(F("\t  "));
         Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
     // read the payload
         Serial.print(F("Adr:"));Serial.print(WHAT_ADR_PAYLOADSTART,HEX);Serial.print(F(":"));
@@ -427,10 +433,10 @@ void RX_WHAT (void)
             //gblQueues.rxPacket.payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
               Serial.print(F("0x"));Serial.print(gblQueues.rxPacket.payload[_i],HEX);Serial.print(F(", "));
         }
-        Serial.print("FCS: ");Serial.print(gblQueues.rxPacket.payload[_payloadSize+2],HEX);Serial.print(gblQueues.rxPacket.payload[_payloadSize+1],HEX);;
-        Serial.print("\tlqi: ");Serial.print(gblQueues.rxPacket.lqi,HEX);
-        Serial.print("\trssi: ");Serial.println(gblQueues.rxPacket.rssi,HEX);
-        Serial.print("\n");
+        Serial.print(F("FCS: "));Serial.print(gblQueues.rxPacket.payload[_payloadSize+2],HEX);Serial.print(gblQueues.rxPacket.payload[_payloadSize+1],HEX);;
+        Serial.print(F("\tlqi: "));Serial.print(gblQueues.rxPacket.lqi,HEX);
+        Serial.print(F("\trssi: "));Serial.println(gblQueues.rxPacket.rssi,HEX);
+        Serial.print(F("\n"));
 
       #endif
 // TOC Indicate the network is alive 
@@ -446,20 +452,26 @@ void RX_WHAT (void)
     {
 // TOC Rx Beacon message
       case MASK_FC_BEACON: //this is a beacon frame.  These are not currently supported.
+        #ifdef RX_MONITOR
         Serial.println(F("Beacon"));
+        #endif  // RX_MONITOR
       break;
 
 // TOC Rx Data message
       case MASK_FC_DATA: //this is a data frame.  Extract and use the data.
+        #ifdef RX_MONITOR
         Serial.println(F("Data"));
+        #endif  // RX_MONITOR
         //Serial.print("MRF_INTSTAT : ");Serial.println(_mrf_intstat);
         //gblQueues.rxPacket.packet_length = Mrf24j_Read(WHAT_ADR_PACKETLENGTH);
         //Serial.print("Address "); Serial.print(WHAT_ADR_RxSTART,HEX); Serial.print(" (length) : ");Serial.println(_length);
-        Serial.print("pan_id : 0x"); Serial.println(gblQueues.rxPacket.pan_id,HEX);
-        Serial.print("gblNetwork.panID : 0x"); Serial.println(gblNetwork.panID,HEX);
+        #ifdef RX_MONITOR
+        Serial.print(F("pan_id : 0x")); Serial.println(gblQueues.rxPacket.pan_id,HEX);
+        Serial.print(F("gblNetwork.panID : 0x")); Serial.println(gblNetwork.panID,HEX);
         
-        Serial.print("destination : 0x"); Serial.println(gblQueues.rxPacket.destination,HEX);
-        Serial.print("sourceaddress :"); Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
+        Serial.print(F("destination : 0x")); Serial.println(gblQueues.rxPacket.destination,HEX);
+        Serial.print(F("sourceaddress :")); Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
+        #endif  // RX_MONITOR
         //_length= gblQueues.rxPacket.frame_length - _ZIGBEE_HEADER_LENGTH;
           //Serial.println ("A message Arrived. ");
           if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
@@ -472,7 +484,7 @@ void RX_WHAT (void)
             if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.pan_id == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
               #ifdef DX_ONLY
-                      Serial.println("Destination Match");
+                      Serial.println(F("Destination Match"));
               #endif
               WHAT_PayloadHandler();
             } // End If this message is targeting this device
@@ -481,11 +493,15 @@ void RX_WHAT (void)
         break;
 // TOC Rx Acknowledge message
       case MASK_FC_ACKFRAME:  // Default to ACKs, though they are not currently being handled.
+        #ifdef RX_MONITOR
         Serial.println(F("Ack"));
+        #endif  // RX_MONITOR
         break;
 // TOC Rx MAC message (network creation/modification)
       case MASK_FC_MAC_CMD: // MAC command... Used in network creation.
+        #ifdef RX_MONITOR
         Serial.println(F("MAC Command"));
+        #endif  // RX_MONITOR
         #ifdef RX_MONITOR
           //Serial.println(F("PANID DESTINATION SOURCE gblNetwork.hasChildren"));
           //Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print(" ");Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print(" ");Serial.print(f,HEX);Serial.print(" ");Serial.println(gblNetwork.hasChildren);
@@ -499,24 +515,32 @@ void RX_WHAT (void)
           //Once this device is part of a network, establish more message acceptance critera
           if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
           { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
+            #ifdef RX_MONITOR
             Serial.print(F("match: gblQueues.rxPacket.pan_id:0X"));Serial.println(gblQueues.rxPacket.pan_id,HEX);
+            #endif  // RX_MONITOR
             //Serial.print("Rx Destination: 0x");Serial.println(gblQueues.rxPacket.destination,HEX);
             //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
             if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.destination == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
-              Serial.println("Destination Match");
+              #ifdef RX_MONITOR
+              Serial.println(F("Destination Match"));
+              #endif  // RX_MONITOR
               WHAT_PayloadHandler();
             } // End If this message is targeting this device
           }
           else
           {
-            Serial.print("No Destination Match: ");Serial.println(gblQueues.rxPacket.pan_id);
+            #ifdef RX_MONITOR
+            Serial.print(F("No Destination Match: "));Serial.println(gblQueues.rxPacket.pan_id);
+            #endif  // RX_MONITOR
           }
         }
         break;
 
       default:
+        #ifdef RX_MONITOR
         Serial.print(F("Reserved recieved message frame: 0x"));Serial.println(gblQueues.rxPacket.frame_control & 0x07);
+        #endif  // RX_MONITOR
         break;
     }// End Switch
 // TOC Re-Transmit message
@@ -564,7 +588,9 @@ void RX_WHAT (void)
             // mask to isolate this child's children and grandchildren in the destination  and source address.
             // This is multiplying a comparison with a number.  A false comparison resolves to 0 and when multiplied, removes the term from the equation.
             uint16_t myMask = ( ((mySourceAddress > 0x00) * 0x0F) | ((mySourceAddress > 0x0F) * 0x0FF) | ((mySourceAddress > 0xFF) * 0xFFF) );
-            Serial.print("Mask:0x");Serial.println(myMask);
+            #ifdef RX_MONITOR
+            Serial.print(F("Mask:0x"));Serial.println(myMask);
+            #endif  // RX_MONITOR
              //Apply the mask to the incoming source address to verify that the lineage matches this device before sending this message.
             uint16_t _temporary = gblQueues.rxPacket.sourceaddress & myMask;
             if(_temporary == mySourceAddress) _retransmit_message = true; //This message came FROM one of my (grand)children. 
@@ -587,7 +613,7 @@ void RX_WHAT (void)
             WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
             _WHAT_Tx_Packet = gblQueues.rxPacket; // Make it the same as the incoming message.
             #ifdef RX_MONITOR
-            Serial.println("Retransmitting");
+            Serial.println(F("Retransmitting"));
             #endif
         }
     }
@@ -632,7 +658,7 @@ void WHAT_PayloadHandler(void)
         if ( gblRegistry.message[_i]. MessageID ==  _thisMessageID)
         {
          #ifdef DX_ONLY
-          Serial.print(F("MID Match. Index:"));Serial.print(_i); Serial.print("MID:");Serial.println(_thisMessageID, HEX);
+          Serial.print(F("MID Match. Index:"));Serial.print(_i); Serial.print(F("MID:"));Serial.println(_thisMessageID, HEX);
           Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
           #endif  
          (* gblRegistry.message[_i].callback)(gblQueues.rxPacket, _index);
@@ -642,7 +668,7 @@ void WHAT_PayloadHandler(void)
         #ifdef DX_ONLY
         else
         {
-          Serial.print(_thisMessageID,HEX);Serial.print("<>");Serial.println(gblRegistry.message[_i]. MessageID,HEX);
+          Serial.print(_thisMessageID,HEX);Serial.print(F("<>"));Serial.println(gblRegistry.message[_i]. MessageID,HEX);
         }
         #endif
       }// End search registered messages for a match.
@@ -761,7 +787,9 @@ void  WHAT_EEPROM(void)
   if (_temp == USED_EEPROM_VALUE)
   {
 // TOC EEPROM retrieval
+    #ifdef CHILD_MONITOR
     Serial.println(F("Restoring from EEPROM"));
+    #endif  // CHILD_MONITOR
     // Values have already been saved and updated in EEPROM.
     // Retrieve the EEPROM values to be used instead of default values
     gblNetwork.panID = EEPROM.read(EEPROM_myPANIDL_LOCATION) + (EEPROM.read(EEPROM_myPANIDH_LOCATION) * 0x100);
@@ -817,7 +845,9 @@ void  WHAT_EEPROM(void)
 // TOC EEPROM Storage
 void WHAT_StoreEEPROM(void)
 {
+  #ifdef CHILD_MONITOR
   Serial.print(F("Saving to EEPROM. Starting Address: 0x"));Serial.println(EEPROM_myPANIDL_LOCATION,HEX);
+  #endif  // CHILD_MONITOR
   //Serial.print("gblNetwork.panID:");Serial.print(gblNetwork.panID,HEX);
   EEPROM.write(EEPROM_myPANIDL_LOCATION, lowByte(gblNetwork.panID)); EEPROM.write(EEPROM_myPANIDH_LOCATION, highByte(gblNetwork.panID));
   //Serial.print("\t EEmyPANID:");Serial.print((EEPROM.read(EEPROM_myPANIDH_LOCATION)*0x100 + EEPROM.read(EEPROM_myPANIDL_LOCATION)),HEX);
@@ -852,7 +882,9 @@ void _EEPORM_store_children (void)
     EEPROM.write(_EEPROM_Child_Location++, lowByte(gblNetwork.children[_i].Security)); EEPROM.write(_EEPROM_Child_Location++, highByte(gblNetwork.children[_i].Security));
     //Serial.println(_EEPROM_Child_Location,HEX);
    }
+   #ifdef CHILD_MONITOR
    Serial.print(F("End _EEPROM_Location. Adr: 0x"));Serial.println(_EEPROM_Child_Location,HEX);
+   #endif  // CHILD_MONITOR
 }
 
 
@@ -1256,7 +1288,9 @@ void WHAT_StateCheck(void)
       // The button is working - it was pressed and released.  When pressed again, reset to preemie.
       if (gblMailbox.networkButton == HIGH) // Button is active high
       { //The button was pressed again.  Reset to PREEMIE mode.
+        #ifdef CHILD_MONITOR
         Serial.println(F("Reset Preemie criteria complete"));
+        #endif  // CHILD_MONITOR
         // preemie creation criteria met.   restore to preemie state, and continue with program initialization
         // Send an abandon network message so the parent will release the child slot, then revert to compile time values.
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
@@ -1276,7 +1310,9 @@ void WHAT_StateCheck(void)
         WHAT_Default_EEPROM_Values();
         WHAT_StoreEEPROM();
         
+        #ifdef CHILD_MONITOR
         Serial.println(F("Preemie state restored."));
+        #endif  // CHILD_MONITOR
         gblMailbox.networkState = WHAT_PREEMIE_RESTORED;  //
         #ifdef CHILD_MONITOR
          Serial.println(F("gblMailbox.networkState: WHAT_PREEMIE_RESTORED ")); Serial.println(WHAT_PREEMIE_RESTORED);
@@ -1431,7 +1467,9 @@ void WHAT_StateCheck(void)
                       
                   // Start a delay timer.  If it expires with no ACK reply, this PANID is acceptable.
                 gblScratch.timer1 = millis() + _RQST_ACK_DELAY;
+                #ifdef CHILD_MONITOR
                 Serial.print(F("Creating Network @ ")); Serial.println(gblNetwork.panID, HEX);
+                #endif  // CHILD_MONITOR
                 gblMailbox.networkState = WHAT_NETWORK_CREATING;  //Creating network, and delaying to see if this PANID is already used.
               } // End if this device won the founding tiebreak.
             }
@@ -1480,7 +1518,9 @@ void WHAT_StateCheck(void)
         {
           //Use the current PANID and leave PREEMIE mode.
           //Serial.print(gblScratch.timer1); Serial.print(" <- Timer     millis-> "); Serial.println(millis());
+          #ifdef CHILD_MONITOR
           Serial.print(F("Network Created. PANID: 0x")); Serial.println(gblNetwork.panID, HEX);
+          #endif  // CHILD_MONITOR
           //WHAT_Default_EEPROM_Values();
           mySourceAddress = 0;  // When forming a new network, start with the address 0x0000
           gblNetwork.parentAddress = 0;  // This is the only device that is its own parent.
@@ -1491,7 +1531,9 @@ void WHAT_StateCheck(void)
       
           //Serial.print("Pre-Store PANID:0x"); Serial.println(gblNetwork.panID);
           WHAT_StoreEEPROM();
+          #ifdef CHILD_MONITOR
           Serial.println(F("EEPROM Stored"));
+          #endif  // CHILD_MONITOR
 
           //gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Control will transition to the program loop from here.
           gblScratch.timer1 = millis()+ 1000; // This will hold the indication of successful creation.
@@ -1604,7 +1646,9 @@ void WHAT_StateCheck(void)
           default_case = false;  // Used to verify that one of the cases executed.
           gblScratch.timer1 = millis() + 5000;   // Wait this amount of time before accepting the lowest offered source address.
           gblMailbox.networkState = WHAT_NETWORK_JOINING;
+          #ifdef CHILD_MONITOR
           Serial.print(F("gblMailbox.networkState = WHAT_NETWORK_JOINING")); Serial.println(gblMailbox.networkState,DEC);
+          #endif  // CHILD_MONITOR
        }//break;
 
       // +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++  
@@ -1659,9 +1703,11 @@ void WHAT_StateCheck(void)
 
                   // FIX (Nov 24, 2026): no WHAT_StoreEEPROM() here - the identity is only
                   // committed (globals + EEPROM) when the join is confirmed.
+                  #ifdef CHILD_MONITOR
                   Serial.println(F("Tx Parent Chosen"));
                   Serial.println(F("PANID\tmySourceAddress\tmyLatchKeyNumber\tmyParentAddress"));
-                  Serial.print(gblJoining.panID,HEX);Serial.print("\t");Serial.print(gblJoining.sourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(gblJoining.parent,HEX);
+                  Serial.print(gblJoining.panID,HEX);Serial.print(F("\t"));Serial.print(gblJoining.sourceAddress,HEX);Serial.print(F("\t"));Serial.print(myLatchKeyNumber,HEX);Serial.print(F("\t"));Serial.println(gblJoining.parent,HEX);
+                  #endif  // CHILD_MONITOR
                   //gblMailbox.networkButton = LOW;   // indicate that the button is used so it will not roll into the next function.
                   gblMailbox.networkState = WHAT_PRE_CONFIRM_NEW_CHILD;  // Network light to indicate someone else's network was sucessfully joined.
 
@@ -1719,7 +1765,9 @@ void WHAT_StateCheck(void)
           if(gblRxFlags.f_NETWORK_JOIN_COMPLETE_03)
           {
             gblScratch.timer1 = millis() + 1000;     // Just hold the light red for 1 second to indicate the network join aborted.
+            #ifdef CHILD_MONITOR
             Serial.print(F("Network join confirmed ")); Serial.println(millis());
+            #endif  // CHILD_MONITOR
             // FIX (Nov 24, 2026): commit the tentative identity only now that the parent
             // has confirmed this device was added. Before this moment the device was
             // still a preemie in its globals and in EEPROM.
@@ -1810,7 +1858,9 @@ void WHAT_StateCheck(void)
             {
                 gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // Mark the reception flag as used so it is not duplicated.
                 gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ;
+                #ifdef CHILD_MONITOR
                 Serial.print(F("gblMailbox.networkState: WHAT_PRE_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
+                #endif  // CHILD_MONITOR
             }
        #ifdef __WHAT_FULLLINK_h
             if (gblMailbox.networkButton == HIGH)   // Holding the network button will attempt to "link" this device with another device
@@ -1872,7 +1922,9 @@ void WHAT_StateCheck(void)
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
         gblScratch.timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY; // allow 30 seconds for a network button to be pressed.
        gblMailbox.networkState = WHAT_NEW_CHILD_REQ;  // In alll cases change to the new state.
+        #ifdef CHILD_MONITOR
         Serial.print(F("gblMailbox.networkState: WHAT_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
+        #endif  // CHILD_MONITOR
        }//break;
 
 // ************************************************************************
@@ -1903,7 +1955,9 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.heardTempID);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
+            #ifdef CHILD_MONITOR
             Serial.print(F("gblMailbox.networkButton Pressed: ")); Serial.println(gblMailbox.networkButton);
+            #endif  // CHILD_MONITOR
          }
         
          if ((gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04) |  (gblMailbox.networkButton == HIGH))
@@ -1916,19 +1970,25 @@ void WHAT_StateCheck(void)
              }
              else
              {
+              #ifdef CHILD_MONITOR
               Serial.println(F("Child not available to offer"));
+              #endif  // CHILD_MONITOR
               gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ; // 
              }
          }
          if(gblRxFlags.f_REQUEST_JOIN_NETWORK_03)
          {
+           #ifdef CHILD_MONITOR
            Serial.println(F("Preemie is still requesting join.  reTx allow."));
+           #endif  // CHILD_MONITOR
           gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ;
          }
     // TOC    Network identified, waiting to be allowed
          if (gblScratch.timer1 <= millis()) //Timer set when a child request is seen.  there is 30seconds to connect.
          { // If the timer expires while in this state, return to normal operations.
+           #ifdef CHILD_MONITOR
            Serial.println(F("\n Allow timer expired"));
+           #endif  // CHILD_MONITOR
            gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
          }
       }//break;
@@ -1944,7 +2004,9 @@ void WHAT_StateCheck(void)
           gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
  
           gblRxFlags.f_ACCEPT_PARENT_06 = false;   // Clear the message reception flag.
+          #ifdef CHILD_MONITOR
           Serial.println(F("Offering child"));
+          #endif  // CHILD_MONITOR
           // Inform the network that this device has a child spot open while a preemie is trying to join.
           gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = false; // clear the message flag when it is used.
           gblScratch.timer1 = millis() + _WHAT_NEW_CHILD_TIME_DELAY;  //This state will only remain active a short time.
@@ -1966,14 +2028,18 @@ void WHAT_StateCheck(void)
 
       if (gblScratch.timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
         {
+            #ifdef CHILD_MONITOR
             Serial.println(F("New Child Timeout"));
+            #endif  // CHILD_MONITOR
             gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
         }
         if(gblRxFlags.f_ACCEPT_PARENT_06)
         {
           gblRxFlags.f_ACCEPT_PARENT_06 = false;    // clear the message flag when it is used.
           // whether the device accepted THIS device as a parent or not, indicate that this state is completed.
+          #ifdef CHILD_MONITOR
           Serial.println(F("New Child Accepted"));
+          #endif  // CHILD_MONITOR
             //Serial.println(F("Child accepted."));
             //Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
             //Serial.print(gblNetwork.panID);Serial.print(gblNetwork.children[_myChild_available_Index].ChildAddress);Serial.print(gblNetwork.children[_myChild_available_Index].LatchKeyValue);Serial.println(gblNetwork.children[_myChild_available_Index].RelationshipType);
@@ -1992,7 +2058,9 @@ void WHAT_StateCheck(void)
             // STEP 1 (Nov 24, 2026): the same proof as the directed copy - WHAT_Mix32(latchkey, confirm nonce, PANID | child address), from the u32 hand-offs - instead of the latchkey itself.
             WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(gblScratch.u32_1, gblScratch.u32_2, (((uint32_t)gblNetwork.panID) << 16) | gblScratch.u16_1)); _index += 4;
            WHAT_TransmitPacket(_WHAT_Tx_Packet);
+           #ifdef CHILD_MONITOR
            Serial.print(F("\nBirth Announcement: "));
+           #endif  // CHILD_MONITOR
            gblScratch.timer1 = millis() + 2000;  // FIX (Nov 24, 2026): was '<=' (a comparison, result discarded) - the confirmed-state hold time never got set.
           gblMailbox.networkState = WHAT_NEW_CHILD_CONFIRMED; // return to normal light operation.
         }
@@ -2244,9 +2312,11 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         gblScratch.u16_1 = _WHAT_Rx_Packet.sourceaddress;  // Hand the accepted child's address to the WHAT_NEW_CHILD_OFFER state for the Birth Announcement.
         gblScratch.u32_1 = _Rx_Offered_Latchkey;           // Same hand-off for the latchkey (32-bit now, so a u32 scratch).
         gblScratch.u32_2 = _Rx_Confirm_Nonce;              // STEP 1: and the confirm nonce - the Birth Announcement's proof is computed over it.
+        #ifdef CHILD_MONITOR
         Serial.print(F("Child accepted.  Index:"));Serial.println(_myChild_available_Index);
         Serial.println(F("PANID\tMyChild\tmyLatchkey\tmyRelationship"));
         Serial.print(gblNetwork.panID,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].ChildAddress,HEX);Serial.print(F("\t"));Serial.print(gblNetwork.children[_myChild_available_Index].LatchKeyValue,HEX);Serial.print(F("\t"));Serial.println(gblNetwork.children[_myChild_available_Index].RelationshipType,HEX);
+        #endif  // CHILD_MONITOR
 
       // Indicate that the parent accepts the child also!
       // #define NETWORK_JOIN_COMPLETE_03    0xF020   // 1 byte length, 2 byte command  // Sent by new parent (Birth Announcement)
@@ -2270,7 +2340,9 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
       }
       else
       {
+        #ifdef CHILD_MONITOR
         Serial.println(F("Child slot was already taken... Child NOT added"));
+        #endif  // CHILD_MONITOR
 
         WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
         _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
