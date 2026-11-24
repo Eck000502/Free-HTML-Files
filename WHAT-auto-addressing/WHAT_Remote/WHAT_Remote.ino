@@ -1,6 +1,6 @@
-#define WHAT_REMOTE_VERSION 26112401   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTE_VERSION 26112402   // Revision: YYMMDD## - bump ## on any change to this file.
 
-#define USED_EEPROM_VALUE 0x7C   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. 
+#define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D, Nov 24, 2026: STEP 1 widened the EEPROM latchkey fields to 32 bits and moved the link table - the layout changed, so the value bumps to force a clean refill.)
 
 /* W.H.A.T.
  *  REV: 200117
