@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112404
+#define WHAT_SOFTWARE_VERSION 26112405
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -17,11 +17,14 @@
 #define EEPROM_WHAT_LOCATION 0x6 // redefine if this EEPROM address is used by other routines.
 //#define EEPROM_WHAT_SHOW_VALUES true // At the end of reading and writing, this prints all EEPROM values to the monitor.
 #define AUTO_ADDRESSING true    // If this is commented out, auto-addressing is disabled.
-#define RX_MONITOR true     // If this is uncommented, recieved messages will be displayed on the serial monitor.
-#define TX_MONITOR true     // If this is uncommented, recieved messages will be displayed on the serial monitor.
+// Serial monitor switches for the WHAT infrastructure prints - commented out in the
+// WHAT_RemoteControl build (Nov 24, 2026, Gary's call) so the application's own serial
+// output is not buried. The WHAT_Remote folder's copies keep these ON for bench work.
+//#define RX_MONITOR true     // If this is uncommented, recieved messages will be displayed on the serial monitor.
+//#define TX_MONITOR true     // If this is uncommented, recieved messages will be displayed on the serial monitor.
 //#define RETRANSMIT true     // This will quickly allow/prevent retransmission of messages (based on criteria).
-#define CHILD_MONITOR true   // Gives serial monitor text during linking process. 
-#define DX_ONLY true        // Gives more detailed information about raw recieved messages.
+//#define CHILD_MONITOR true   // Gives serial monitor text during linking process.
+//#define DX_ONLY true        // Gives more detailed information about raw recieved messages.
 
 #include <mrf24j_G.h> // *****************  trying to remove this from the final project.
 #include "z_WHAT_Command.h"
