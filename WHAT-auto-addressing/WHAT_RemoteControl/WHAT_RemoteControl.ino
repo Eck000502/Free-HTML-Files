@@ -1,4 +1,4 @@
-#define WHAT_REMOTECONTROL_VERSION 26112403   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTECONTROL_VERSION 26112404   // Revision: YYMMDD## - bump ## on any change to this file.
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D to match the Nov 24, 2026 base EEPROM layout - 32-bit latchkeys.)
 
@@ -11,6 +11,8 @@
 // control messages are BROADCAST - on a two-board bench that behaves exactly like the
 // old fixed peer link; on a bigger network, every member hears and decides.
 #define TRANSMIT_DELAY 500
+
+#define SIMULATED_INPUTS  // TEST (Nov 24, 2026, Gary's request): simulate the analog inputs instead of reading the potentiometers on A3-A5 - the simulated value steps 0% to 100% in 10% steps every 5 seconds. Mutually exclusive with Loop_ReadInputs: only one of the two runs (see loop()), and both write the same analog_in1/2/3 variables, so simulated values are transmitted exactly like real ones. Comment this line out to return to the real inputs.
 
 /* W.H.A.T.
  *  REV: 200117
@@ -183,7 +185,11 @@ void loop() {
   Loop_WHAT(); // WHAT.ino -  Monitors and communicates for Wireless Home Automation and Telemetry
   //checkVoltage(); //(this routine)  Measures the voltage powering this device.
   //Loop_Tmptr();
+#ifdef SIMULATED_INPUTS
+  Loop_SimulatedInputs();  // TEST: simulated inputs (see the SIMULATED_INPUTS define). Mutually exclusive with the real reader below.
+#else
   Loop_ReadInputs();
+#endif
   if(analog_control == PWM_OUTPUTS)
   { // FIXED: only drive the outputs from PWM_OUT_x while in PWM mode.
     // In DIGITAL mode the Rx_CMD_DIG01_04_FET handler writes the FET pins directly,
@@ -619,6 +625,29 @@ void Loop_MonitorButtonLight(void)
 }
 
 // ***************
+void Loop_SimulatedInputs(void)
+{
+  // TEST (Nov 24, 2026, Gary's request): stands in for Loop_ReadInputs when
+  // SIMULATED_INPUTS is defined - the two never run together. Steps a simulated
+  // input from 0% to 100% in 10% steps, one step every 5 seconds, then wraps
+  // back to 0%. All three channels get the same value. Writes the SAME
+  // variables the real reader writes (analog_in1/2/3, in volts, as a fraction
+  // of the measured supply - exactly what a pot wiper would produce), so the
+  // normal transmit path sends the simulated values as if pots were attached.
+  static uint8_t _st_simPercent = 0;
+  static double _st_simTimer = millis();
+  float _simVolts = (getSupplyVoltage() * _st_simPercent) / 100.0;
+  analog_in1 = _simVolts;
+  analog_in2 = _simVolts;
+  analog_in3 = _simVolts;
+  if(_st_simTimer <= millis())
+  {
+    _st_simTimer = millis() + 5000;  // Next step in 5 seconds.
+    _st_simPercent += 10;
+    if(_st_simPercent > 100) _st_simPercent = 0;
+  }
+}
+
 void Loop_SendData(void)
 {
 
@@ -659,18 +688,21 @@ void Loop_SendData(void)
     _WHAT_Tx_Packet.payload[_index++] = 1;
     _AnalogToPWM = constrain((analog_in1 / getSupplyVoltage())*100, 0, 100);
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
+    uint8_t _sent1 = _AnalogToPWM;  // Kept so the print after the send can show the actual values transmitted.
 
     _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in2 message block
     _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 2;
     _AnalogToPWM = constrain((analog_in2 / getSupplyVoltage())*100, 0, 100);
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
+    uint8_t _sent2 = _AnalogToPWM;
 
     _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in3 message block
     _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 3;
     _AnalogToPWM = constrain((analog_in3 / getSupplyVoltage())*100, 0, 100);
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
+    uint8_t _sent3 = _AnalogToPWM;
 
     // // Send the temperature from the local sensor:
     // _WHAT_Tx_Packet.payload[_index++] = 3;        // Length of the temperature message
@@ -729,7 +761,13 @@ void Loop_SendData(void)
     _WHAT_Tx_Packet.payload[0] = _index; // The total payload length is captured in the first byte of the payload.
 
     WHAT_TransmitPacket(_WHAT_Tx_Packet);
-    Serial.println("sent message");
+    // Show the actual values just transmitted (was a bare "sent message").
+    Serial.print(F("Sent PWM: "));
+    Serial.print(_sent1);
+    Serial.print(F(", "));
+    Serial.print(_sent2);
+    Serial.print(F(", "));
+    Serial.println(_sent3);
   }
 }
 /*
