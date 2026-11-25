@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112501
+#define WHAT_NETWORK_VERSION 26112502
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -455,23 +455,25 @@ void RX_WHAT (void)
         //Serial.print("MRF_INTSTAT : ");Serial.println(_mrf_intstat);
         //gblQueues.rxPacket.packet_length = Mrf24j_Read(WHAT_ADR_PACKETLENGTH);
         //Serial.print("Address "); Serial.print(WHAT_ADR_RxSTART,HEX); Serial.print(" (length) : ");Serial.println(_length);
+        #ifdef MATCH_MONITOR  // PROPOSED (Nov 25, 2026): match confirmations behind their own switch (Gary - cleaner serial log). The raw dump above already shows pan / destination / source.
         Serial.print("pan_id : 0x"); Serial.println(gblQueues.rxPacket.pan_id,HEX);
         Serial.print("gblNetwork.panID : 0x"); Serial.println(gblNetwork.panID,HEX);
         
         Serial.print("destination : 0x"); Serial.println(gblQueues.rxPacket.destination,HEX);
         Serial.print("sourceaddress :"); Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
+        #endif
         //_length= gblQueues.rxPacket.frame_length - _ZIGBEE_HEADER_LENGTH;
           //Serial.println ("A message Arrived. ");
           if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
           { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
-            #ifdef DX_ONLY
+            #ifdef MATCH_MONITOR
                 Serial.println(F("Data PAN ID Match"));
             #endif
             //Serial.print("Rx Destination: 0x");Serial.println(gblQueues.rxPacket.destination,HEX);
             //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
             if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.pan_id == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
-              #ifdef DX_ONLY
+              #ifdef MATCH_MONITOR
                       Serial.println("Destination Match");
               #endif
               WHAT_PayloadHandler();
@@ -499,18 +501,24 @@ void RX_WHAT (void)
           //Once this device is part of a network, establish more message acceptance critera
           if ((gblQueues.rxPacket.pan_id == gblNetwork.panID) | (gblQueues.rxPacket.pan_id == GLOBAL_PANID))
           { // The recieved packet is using the PAN ID of this network or has a global PAN or is configuring a network
+            #ifdef MATCH_MONITOR
             Serial.print(F("match: gblQueues.rxPacket.pan_id:0X"));Serial.println(gblQueues.rxPacket.pan_id,HEX);
+            #endif
             //Serial.print("Rx Destination: 0x");Serial.println(gblQueues.rxPacket.destination,HEX);
             //Serial.print("MySource: 0x");Serial.println(mySourceAddress,HEX);
             if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.destination == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
+              #ifdef MATCH_MONITOR
               Serial.println("Destination Match");
+              #endif
               WHAT_PayloadHandler();
             } // End If this message is targeting this device
           }
           else
           {
+            #ifdef MATCH_MONITOR
             Serial.print("No Destination Match: ");Serial.println(gblQueues.rxPacket.pan_id);
+            #endif
           }
         }
         break;
@@ -631,7 +639,7 @@ void WHAT_PayloadHandler(void)
       { // Search the registered messages and see if they want this messageID.
         if ( gblRegistry.message[_i]. MessageID ==  _thisMessageID)
         {
-         #ifdef DX_ONLY
+         #ifdef MATCH_MONITOR
           Serial.print(F("MID Match. Index:"));Serial.print(_i); Serial.print("MID:");Serial.println(_thisMessageID, HEX);
           Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
           #endif  
@@ -639,7 +647,7 @@ void WHAT_PayloadHandler(void)
          //TOC THIS is where the recieved message activates the callback function.
 
         }
-        #ifdef DX_ONLY
+        #ifdef MATCH_MONITOR
         else
         {
           Serial.print(_thisMessageID,HEX);Serial.print("<>");Serial.println(gblRegistry.message[_i]. MessageID,HEX);
@@ -1062,8 +1070,8 @@ void Tx_REQUEST_ACK_03(void)
     _WHAT_Tx_Packet.destination = 0xFFFF;  // Send to ANY device with this PANID.
     _WHAT_Tx_Packet.sourceaddress = 0xFFFF;  // no source address claimed yet, in case another network has this address.
     uint8_t _index = 0;
-    _WHAT_Tx_Packet.payload[_index++] = 3; //Total payload length (including this byte)
-    _WHAT_Tx_Packet.payload[_index++] = 2; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte) - FIX (Nov 25, 2026): was 3, which cut the 2-byte MID in half on the air (the transmitter sizes the frame from this byte), so no holder could ever match the request and reply. The same numbers were in the original code.
+    _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte) - FIX (Nov 25, 2026): was 2.
     _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_ACK_03);
     _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_ACK_03);
     //Serial.print(F("Tx_REQUEST_ACK_03: ")); Serial.print(_WHAT_Tx_Packet.payload[0],HEX);Serial.print(_WHAT_Tx_Packet.payload[1],HEX);Serial.print(_WHAT_Tx_Packet.payload[2],HEX);Serial.print(_WHAT_Tx_Packet.payload[3],HEX);
@@ -1089,8 +1097,8 @@ void Tx_TRUNK_CLAIM_CHECK(uint16_t _candidate)
     _WHAT_Tx_Packet.destination = _candidate;       // Ask the candidate address itself.
     _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
     uint8_t _index = 0;
-    _WHAT_Tx_Packet.payload[_index++] = 3; //Total payload length (including this byte)
-    _WHAT_Tx_Packet.payload[_index++] = 2; //MID length (including this byte)
+    _WHAT_Tx_Packet.payload[_index++] = 4; //Total payload length (including this byte) - FIX (Nov 25, 2026): was 3 (copied from Tx_REQUEST_ACK_03), which cut the 2-byte MID in half on the air; the bench claim check's silence proved nothing until this was fixed.
+    _WHAT_Tx_Packet.payload[_index++] = 3; //MID length (including this byte) - FIX (Nov 25, 2026): was 2.
     _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_ACK_03);
     _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_ACK_03);
     WHAT_TransmitPacket(_WHAT_Tx_Packet);
