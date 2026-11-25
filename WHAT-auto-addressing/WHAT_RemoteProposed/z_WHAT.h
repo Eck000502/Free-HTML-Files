@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112501
+#define WHAT_SOFTWARE_VERSION 26112502
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -22,6 +22,7 @@
 //#define RETRANSMIT true     // This will quickly allow/prevent retransmission of messages (based on criteria).
 #define CHILD_MONITOR true   // Gives serial monitor text during linking process. 
 #define DX_ONLY true        // Gives more detailed information about raw recieved messages.
+//#define MATCH_MONITOR true  // PROPOSED (Nov 25, 2026): per-message match confirmations (pan / destination / MID match and compare lines). Off at Gary's request for a cleaner serial log; the raw packet dump (DX_ONLY) and the join narrative (CHILD_MONITOR) stay on.
 
 #include <mrf24j_G.h> // *****************  trying to remove this from the final project.
 #include "z_WHAT_Command.h"
