@@ -1,4 +1,4 @@
-#define WHAT_REMOTE_VERSION 26112502   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTE_VERSION 26112503   // Revision: YYMMDD## - bump ## on any change to this file.
 // PROPOSED trial fork (Nov 25, 2026): this folder is the WHAT_Remote base plus
 // PROPOSED trunk addressing (3 path digits + trunk digit, trunk rollover offers
 // by permanent devices after a REQUEST_ACK claim check). The verified
@@ -11,6 +11,9 @@
 // a replacement - and button-held-at-power-on replacement joins with a WHITE
 // searching light) were added to the base files in this folder. This app file
 // only gained the WHAT_LIGHT_WHITE rendering and an F() pass.
+// Nov 26, 2026: the WHITE rendering now dims the red channel to
+// WHITE_RED_PERCENT - at equal drive the red die overwhelms green/blue and
+// the lamp reads red instead of white (Gary's bench diagnosis).
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D, Nov 24, 2026: STEP 1 widened the EEPROM latchkey fields to 32 bits and moved the link table - the layout changed, so the value bumps to force a clean refill.)
 
@@ -96,6 +99,7 @@ const CRGB lightcolor[] PROGMEM= {CRGB(NEO_COLOR_OFF),
   #define b_RED_RGB_PIN 5   // Remote zigbee hardware
   #define b_GREEN_RGB_PIN 4
   #define b_BLUE_RGB_PIN 3
+  #define WHITE_RED_PERCENT 12   // PROPOSED (Nov 26, 2026): white balance for WHAT_LIGHT_WHITE. The red die in the RGB LED runs much brighter than green/blue at the same drive (lower forward voltage across the same resistor), so full-on red makes "white" read as red - Gary's bench diagnosis, Nov 26, 2026. The value is carried over from Ben's Arduino Step 1 calibration (Oct 2026): red scaled to 30/255 inside setColor() - 30/255 is about 12% of full on-time, which is what this percent produces (the WHITE case writes the same 225 PWM value his setColor() did). Green/blue stay full. One number, tuned by eye on the bench.
   // ************* AtoD Calibration *******************************
  // #define MAX_A2D_VOLTS 0.833 // Call getSupplyVoltage routine to calculate this! 
   #define MAX_A2D_COUNTS 175.0
@@ -352,7 +356,7 @@ void Loop_Network_Button_Light(void)    // checks the RAW button reserved for ne
         break;
 
     case WHAT_LIGHT_WHITE:
-        digitalWrite(b_RED_RGB_PIN,LOW);   //Light White - all three channels on (active LOW).
+        analogWrite(b_RED_RGB_PIN, 255 - ((WHITE_RED_PERCENT * 255) / 100));  //Light White - red dimmed to WHITE_RED_PERCENT (active LOW: the PWM value is the OFF fraction). The other cases use digitalWrite on this pin, which cancels the PWM again.
         digitalWrite(b_GREEN_RGB_PIN,LOW); 
         digitalWrite(b_BLUE_RGB_PIN,LOW);
         // PROPOSED (Nov 25, 2026): a preemie searching as a replacement shows steady WHITE.
