@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112405
+#define WHAT_SOFTWARE_VERSION 26112601
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -18,13 +18,16 @@
 //#define EEPROM_WHAT_SHOW_VALUES true // At the end of reading and writing, this prints all EEPROM values to the monitor.
 #define AUTO_ADDRESSING true    // If this is commented out, auto-addressing is disabled.
 // Serial monitor switches for the WHAT infrastructure prints - commented out in the
-// WHAT_RemoteControl build (Nov 24, 2026, Gary's call) so the application's own serial
-// output is not buried. The WHAT_Remote folder's copies keep these ON for bench work.
+// WHAT_RemoteControl build (Gary's call, carried over from the Nov 24, 2026 quieting
+// of this folder) so the application's own serial output is not buried. The
+// WHAT_Remote folder's copies keep these ON for bench work. The adopted base's
+// infrastructure prints are gated under these switches in this folder's copies.
 //#define RX_MONITOR true     // If this is uncommented, recieved messages will be displayed on the serial monitor.
 //#define TX_MONITOR true     // If this is uncommented, recieved messages will be displayed on the serial monitor.
 //#define RETRANSMIT true     // This will quickly allow/prevent retransmission of messages (based on criteria).
 //#define CHILD_MONITOR true   // Gives serial monitor text during linking process.
 //#define DX_ONLY true        // Gives more detailed information about raw recieved messages.
+//#define MATCH_MONITOR true  // PROPOSED (Nov 25, 2026): per-message match confirmations (pan / destination / MID match and compare lines). Off at Gary's request for a cleaner serial log; the raw packet dump (DX_ONLY) and the join narrative (CHILD_MONITOR) stay on.
 
 #include <mrf24j_G.h> // *****************  trying to remove this from the final project.
 #include "z_WHAT_Command.h"
@@ -122,7 +125,8 @@ enum WHAT_LedColor{
   WHAT_LIGHT_OFF,
   WHAT_LIGHT_RED,
   WHAT_LIGHT_GREEN,
-  WHAT_LIGHT_BLUE
+  WHAT_LIGHT_BLUE,
+  WHAT_LIGHT_WHITE   // PROPOSED (Nov 25, 2026): all three channels on. A preemie that powered on with its network button held shows steady WHITE while searching - "I am available to replace a missing unit."
 };
 
 enum WHAT_State{
@@ -165,7 +169,12 @@ enum WHAT_State{
   WHAT_NETWORK_ERROR_WAIT,  // Holds the light blinking red for a few seconds.
   WHAT_PRE_NET_ALIVE,
   WHAT_NET_ALIVE,         // A device is connected to an active network.
-  WHAT_LINKING          // This is only used if z_WHAT_FullLink.h is included.
+  WHAT_LINKING,         // This is only used if z_WHAT_FullLink.h is included.
+
+  // PROPOSED (Nov 25, 2026): appended at the END of the enum so every existing
+  // state's number - which Gary reads in the serial logs - stays unchanged.
+  WHAT_REPLACE_INTENT_CHECK,        // A preemie powered on with its button held: validating the hold before declaring replacement intent.
+  WHAT_RESET_PREMIE_AWAITING_CONFIRM  // A leaver has sent ABANDON_CHILD_05 and is waiting (bounded retries) for the parent's REPLY_ABANDON_CONFIRM_03 before wiping itself.
 
 };
 
@@ -176,6 +185,8 @@ struct WHAT_Mailbox
   bool networkButton = 0;                    // App writes, WHAT reads: state of the physical or virtual network button.
   WHAT_State networkState = WHAT_STARTUP;    // WHAT writes, app may display: current network status.
   WHAT_LedColor networkStateColor = WHAT_LIGHT_OFF; // WHAT writes, app renders: network light color (RGB pins, or a screen section).
+  bool childLost = false;                    // WHAT writes, app may display: PROPOSED (Nov 25, 2026) - at least one of this device's children has been silent past WHAT_CHILD_LOST_MS. The core blinks the network light RED while this is set; an app with a richer display may show more.
+  uint16_t childLostAddress = 0xFFFF;        // WHAT writes, app may display: PROPOSED (Nov 25, 2026) - the indicated lost child (a trunk child outranks fill children, then the longest-lost). This is the address a replacement offer carries if a replacement preemie is accepted; the indication itself authorizes nothing (Gary's ruling, Nov 25, 2026 - there is no button-erase).
 };
 WHAT_Mailbox gblMailbox;
 
@@ -203,6 +214,16 @@ struct WHAT_Joining
   uint16_t tempID = 0xFFFF;       // STEP 1 (Nov 24, 2026): random per-attempt ID binding one join attempt - on a preemie, MY id, generated when a search begins, echoed back to me in the allow / offers / accept.
   uint16_t heardTempID = 0xFFFF;  // STEP 1 TIEBREAK (Nov 24, 2026): the temp ID of the preemie whose search (or alert) was last heard. Members echo THIS in their alert / allow / propose and check it against the accept; a searching preemie compares it against its own tempID to decide which of them founds a network.
   uint32_t confirmNonce = 0;      // STEP 1 (Nov 24, 2026): preemie-side only - the nonce sent in ACCEPT_PARENT_06, against which the parent's NETWORK_JOIN_COMPLETE_03 proof is checked.
+  uint16_t trunkCandidate = 0xFFFF; // PROPOSED (Nov 25, 2026): member-side - the trunk address being claim-checked / offered in this join attempt (0xFFFF = none).
+  uint16_t ackSourceAddress = 0xFFFF; // PROPOSED (Nov 25, 2026): source address of the most recent REPLY_ACKNOWLEDGE_03. (Founding ignores it; the trunk claim check matches it against trunkCandidate.)
+  bool trunkClaimPending = false;   // PROPOSED (Nov 25, 2026): a trunk ACK claim check is waiting out its silence window.
+  bool trunkClaimPassed = false;    // PROPOSED (Nov 25, 2026): the silence window expired with no reply - the trunk address is free to offer.
+  double trunkClaimDeadline = 0;    // PROPOSED (Nov 25, 2026): when the claim check's silence window ends (millis()-based, like the other timers).
+  bool replaceIntent = false;       // PROPOSED (Nov 25, 2026): PREEMIE side - this device powered on with its network button held, so its searches carry the replacement flag and its light shows WHITE. Cleared when it joins a network or founds one.
+  bool heardReplaceIntent = false;  // PROPOSED (Nov 25, 2026): MEMBER side - the searching preemie whose attempt is in flight declared replacement intent (latched by Rx_REQUEST_JOIN_NETWORK_03 from the search's flags byte).
+  bool replaceOffer = false;        // PROPOSED (Nov 25, 2026): MEMBER side - the offer currently being made is a replacement offer for the lost child in replaceSlot, not an ordinary fill / trunk offer.
+  uint8_t replaceSlot = 0xFF;       // PROPOSED (Nov 25, 2026): MEMBER side - the child-table slot whose lost record a replacement offer would supersede at commit.
+  bool replaceOfferReceived = false; // PROPOSED (Nov 25, 2026): PREEMIE side - a replacement offer has been taken (it outranks ordinary offers, which are then ignored for this attempt).
 };
 WHAT_Joining gblJoining;
 // NOTE (Nov 2026 rename pass): _WHAT_Child_Used is no longer a global - it is a local
@@ -228,6 +249,7 @@ struct WHAT_Network
   uint16_t panID = 0xFFFF;          // This is saved in and loaded from EEPROM
   uint16_t parentAddress = 0xFFFF;  // When I am adopted, I will record the parent's address
   ChildType children[ChildMaxIndex]; // each device can have up to 15 children. Index 0 is THIS device.
+  uint32_t childLastHeard[ChildMaxIndex]; // PROPOSED (Nov 25, 2026): millis() of the last traffic heard from each child's subtree (slot 0 unused). RAM ONLY - never stored to EEPROM: a power cycle must not resurrect a stale "heard". WHAT_begin stamps restored children with the boot time, so each gets a full lost interval to reappear before it can be flagged.
   bool hasChildren = false;         // quick check (during message forwarding) to see if this device has children.
                                     // This device does not need to forward any messages if it does not have children.
                                     // See WHAT.ino/RX_WHAT (after switch)
@@ -240,6 +262,15 @@ WHAT_Network gblNetwork;
 // The network-alive timeout below is DERIVED from this (Gary's rule: 2 x heartbeat) -
 // one missed heartbeat is tolerated, two flip the alive light from green to blue.
 #define WHAT_HEARTBEAT_INTERVAL_MS 10000
+
+// PROPOSED (Nov 25, 2026): a child counts as LOST when no traffic from its
+// subtree has been heard for this long. DERIVED from the heartbeat interval by
+// the same rule as the network-alive timeout (Gary, Nov 24, 2026: 2 x
+// heartbeat) - every member transmits at least once per heartbeat interval, so
+// two silent intervals mean the child is gone or out of range, never merely
+// quiet. A lost child that is heard again is simply back: its record and
+// latchkey were never touched.
+#define WHAT_CHILD_LOST_MS (2 * WHAT_HEARTBEAT_INTERVAL_MS)
 
 // The network-alive deadline stays a standalone global, NOT a member of gblNetwork:
 // its value is millis()+20000 - a runtime value, not a compile-time constant. Putting it
