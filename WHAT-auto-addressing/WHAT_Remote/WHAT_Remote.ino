@@ -1,4 +1,20 @@
-#define WHAT_REMOTE_VERSION 26112402   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTE_VERSION 26112601   // Revision: YYMMDD## - bump ## on any change to this file.
+// ADOPTED (Nov 26, 2026): this folder is the main path. The addressing and
+// lifecycle work trialled in the WHAT_RemoteProposed fork (Nov 25-26, 2026)
+// was adopted by Gary and moved here: trunk addressing (3 path digits +
+// trunk digit, trunk rollover offers by permanent devices after a
+// REQUEST_ACK claim check), the Reading B table check in the trunk offer
+// path, the ABANDON confirmation handshake (REPLY_ABANDON_CONFIRM_03 +
+// EEPROM save on release), the JOIN_COMPLETE phantom-byte fix, and the
+// lost-child package (per-child liveness, RED lost indication - indication
+// only, there is NO button-erase; the lost record leaves only by the
+// child's own ABANDON or by a replacement - and button-held-at-power-on
+// replacement joins with a WHITE searching light). All of it bench-verified
+// on two Remotes (PAN 6D65) before adoption. This app file carries the
+// WHAT_LIGHT_WHITE rendering; its red channel is dimmed to
+// WHITE_RED_PERCENT - at equal drive the red die overwhelms green/blue and
+// the lamp reads red instead of white (Gary's bench diagnosis, Nov 26,
+// 2026; the value comes from Ben's Arduino calibration, Oct 2026).
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D, Nov 24, 2026: STEP 1 widened the EEPROM latchkey fields to 32 bits and moved the link table - the layout changed, so the value bumps to force a clean refill.)
 
@@ -84,6 +100,7 @@ const CRGB lightcolor[] PROGMEM= {CRGB(NEO_COLOR_OFF),
   #define b_RED_RGB_PIN 5   // Remote zigbee hardware
   #define b_GREEN_RGB_PIN 4
   #define b_BLUE_RGB_PIN 3
+  #define WHITE_RED_PERCENT 12   // PROPOSED (Nov 26, 2026): white balance for WHAT_LIGHT_WHITE. The red die in the RGB LED runs much brighter than green/blue at the same drive (lower forward voltage across the same resistor), so full-on red makes "white" read as red - Gary's bench diagnosis, Nov 26, 2026. The value is carried over from Ben's Arduino Step 1 calibration (Oct 2026): red scaled to 30/255 inside setColor() - 30/255 is about 12% of full on-time, which is what this percent produces (the WHITE case writes the same 225 PWM value his setColor() did). Green/blue stay full. One number, tuned by eye on the bench.
   // ************* AtoD Calibration *******************************
  // #define MAX_A2D_VOLTS 0.833 // Call getSupplyVoltage routine to calculate this! 
   #define MAX_A2D_COUNTS 175.0
@@ -159,7 +176,7 @@ void setup() {
 //  WHAT_begin(/*bool *_network_button */ gblMailbox.networkButton , /*bool *_network_light */gblMailbox.networkState, /*uint_8 *NetLightColor*/gblMailbox.networkStateColor);
  
   WHAT_begin();
-  Serial.println("WHAT_Began");
+  Serial.println(F("WHAT_Began"));
   //Setup_ZigBee_Rx();
 
   // If this device will allow "full links... "
@@ -338,9 +355,16 @@ void Loop_Network_Button_Light(void)    // checks the RAW button reserved for ne
         digitalWrite(b_BLUE_RGB_PIN,LOW);
         // Show_btn_NETWORK(/*Color of the button*/ILI9341_DARK_RED, /*Color of the text*/ILI9341_BLACK, /*line1 Text*/ "Network",/*line2 Text*/ "PENDING");
         break;
-         
+
+    case WHAT_LIGHT_WHITE:
+        analogWrite(b_RED_RGB_PIN, 255 - ((WHITE_RED_PERCENT * 255) / 100));  //Light White - red dimmed to WHITE_RED_PERCENT (active LOW: the PWM value is the OFF fraction). The other cases use digitalWrite on this pin, which cancels the PWM again.
+        digitalWrite(b_GREEN_RGB_PIN,LOW); 
+        digitalWrite(b_BLUE_RGB_PIN,LOW);
+        // PROPOSED (Nov 25, 2026): a preemie searching as a replacement shows steady WHITE.
+        break;
+
      default:
-        Serial.print("Invalid Light State : 0x");Serial.println(gblMailbox.networkStateColor,HEX);
+        Serial.print(F("Invalid Light State : 0x"));Serial.println(gblMailbox.networkStateColor,HEX);
         gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
         break;   
     }
@@ -436,7 +460,7 @@ void Loop_Tmptr(void)
 
         // 1. Read the raw ADC value first
         uint16_t _rawA2Dcounts = analogRead(TMPTR1_PIN);
-        Serial.print("Raw A2D:"); Serial.println(_rawA2Dcounts);
+        Serial.print(F("Raw A2D:")); Serial.println(_rawA2Dcounts);
 
         // 2. Convert raw counts to Volts (using float math)
         float _volts = (_rawA2Dcounts / TMPTR_MAX_A2D_COUNTS) * getSupplyVoltage();
@@ -448,8 +472,8 @@ void Loop_Tmptr(void)
         // 4. Convert Celsius to Fahrenheit correctly
         gblAppTmptr.tmptr_DegF_1 = (gblAppTmptr.tmptr_DegC_1 * 9.0 / 5.0) + 32.0;
 
-        Serial.print("DegF:"); Serial.println(gblAppTmptr.tmptr_DegF_1);
-        Serial.print("Supply Voltage:"); Serial.println(getSupplyVoltage());
+        Serial.print(F("DegF:")); Serial.println(gblAppTmptr.tmptr_DegF_1);
+        Serial.print(F("Supply Voltage:")); Serial.println(getSupplyVoltage());
     }
 }
 
@@ -522,7 +546,7 @@ void Loop_MonitorButtonLight(void)
   if(_st_lastButtonState != _thisButton)
   { // The button state has changed, so update the message immediately
     _st_button_delay = millis(); // Reset the delay so this will update immediately.
-    Serial.println("NewButton");
+    Serial.println(F("NewButton"));
   }
   if(_st_button_delay <= millis())
   { // If it is time, send the state of the button as a stand alone message.
@@ -567,8 +591,8 @@ void Loop_SendData(void)
     _WHAT_Tx_Packet.payload[_index++] = 3;        // Length of the temperature message
     _WHAT_Tx_Packet.payload[_index++] = TEMPERATURE01_DEG_C_03;  //MID 
     _WHAT_Tx_Packet.payload[_index++] = (int8_t)gblAppTmptr.tmptr_DegC_1;   // Data Value - DegC as a SIGNED INTEGER
-    Serial.print("TxTemperature ");Serial.println(gblAppTmptr.tmptr_DegC_1);
-    Serial.print("DegF:");Serial.println(gblAppTmptr.tmptr_DegF_1);
+    Serial.print(F("TxTemperature "));Serial.println(gblAppTmptr.tmptr_DegC_1);
+    Serial.print(F("DegF:"));Serial.println(gblAppTmptr.tmptr_DegF_1);
 /*     
     // Send Analog In 1 (order of messages does not matter)
     _WHAT_Tx_Packet.payload[_index++] = 6;                    // Length of analog in1
@@ -618,7 +642,7 @@ void Loop_SendData(void)
 */
     // Now that the payload is filled, send the message.
     WHAT_TransmitPacket(_WHAT_Tx_Packet);
-    Serial.println("sent message");
+    Serial.println(F("sent message"));
   }
 }
 /*
@@ -638,7 +662,7 @@ void PeriodicTx (void)
     WHAT_TransmitPacket(WHAT_Tx_Packet);
     //Serial.println(Mrf24j_Read(MRF24J_BBREG2),HEX);
 
-    Serial.println("Transmitting");
+    Serial.println(F("Transmitting"));
 
     uint8_t _payload[4];
     
@@ -665,7 +689,7 @@ void RxLightControl (WHAT_Packet _WHAT_Rx_Packet,uint8_t _index)
   uint8_t _LED_Number = _WHAT_Rx_Packet.payload[COMMAND_DB1];
   uint16_t _LED_COLOR = _WHAT_Rx_Packet.payload[COMMAND_DB2]*0x100 + _WHAT_Rx_Packet.payload[COMMAND_DB3];
 
-  Serial.println("Rx LightControl");
+  Serial.println(F("Rx LightControl"));
 
   // This hardware only supports 1 LED (number 1) with red, green, blue and annode pins.
   while(_bytes_left >1)
@@ -691,7 +715,7 @@ void RxLightControl (WHAT_Packet _WHAT_Rx_Packet,uint8_t _index)
 //void RxFETControl (ZIG_Packet _ZigBee_Rx_Packet,uint8_t _index)
 void RxFETControl (WHAT_Packet _WHAT_Rx_Packet,uint8_t _index)
 {
-  Serial.println("Rx FET");
+  Serial.println(F("Rx FET"));
 
   // This is a FET control MID
   gblAppIO.b_o_FET1 = (_WHAT_Rx_Packet.payload[COMMAND_DB1] && 0b00000001);     // FETs are active LOW.
@@ -704,13 +728,13 @@ void RxDigitalInput(WHAT_Packet _WHAT_Rx_Packet,uint8_t _index)
     // This is specifically written to act upon the remote digital input,
     //  which for this project will be DIGITAL 0.
     #define _BUTTON_MASK 0b00000001
-    Serial.println("DigitalControl");
-    Serial.print(" _INDEX : ");Serial.println(_index);
-    Serial.print(" payload[_index] : ");Serial.println(_WHAT_Rx_Packet.payload[_index],HEX);
-    Serial.print(" payload[_index +1] : ");Serial.println(_WHAT_Rx_Packet.payload[_index+1],HEX);
-    Serial.print(" payload[_index +2] : ");Serial.println(_WHAT_Rx_Packet.payload[_index+2],HEX);
-    Serial.print(" payload[_index +3] : ");Serial.println(_WHAT_Rx_Packet.payload[_index+3],HEX);
-    Serial.print(" payload[_index +4] : ");Serial.println(_WHAT_Rx_Packet.payload[_index+4],HEX);
+    Serial.println(F("DigitalControl"));
+    Serial.print(F(" _INDEX : "));Serial.println(_index);
+    Serial.print(F(" payload[_index] : "));Serial.println(_WHAT_Rx_Packet.payload[_index],HEX);
+    Serial.print(F(" payload[_index +1] : "));Serial.println(_WHAT_Rx_Packet.payload[_index+1],HEX);
+    Serial.print(F(" payload[_index +2] : "));Serial.println(_WHAT_Rx_Packet.payload[_index+2],HEX);
+    Serial.print(F(" payload[_index +3] : "));Serial.println(_WHAT_Rx_Packet.payload[_index+3],HEX);
+    Serial.print(F(" payload[_index +4] : "));Serial.println(_WHAT_Rx_Packet.payload[_index+4],HEX);
     
     if((_WHAT_Rx_Packet.payload[_index+3] & _BUTTON_MASK))
     {
