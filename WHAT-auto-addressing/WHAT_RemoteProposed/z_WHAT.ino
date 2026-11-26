@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112502
+#define WHAT_NETWORK_VERSION 26112503
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -269,6 +269,58 @@ uint32_t WHAT_PayloadGet32(uint8_t *_payload, uint8_t _index)
   return ((uint32_t)_payload[_index] << 24) | ((uint32_t)_payload[_index + 1] << 16) | ((uint32_t)_payload[_index + 2] << 8) | (uint32_t)_payload[_index + 3];
 }
 
+// PROPOSED (Nov 25, 2026): is _source inside _child's subtree, under the
+// proposed trunk reading? Three cases: the child itself; a TRUNK child (path
+// 000), whose subtree is its whole trunk; and a fill child, found by walking
+// the source's digit-parents up (zero the deepest nonzero path digit, at most
+// three steps). The walk stops at a trunk root - a seam parent is not
+// derivable from digits (the table is the truth at a seam), so traffic from
+// across a seam only credits the seam child itself, never the grandparent.
+// That is enough for liveness: every device heartbeats when quiet, so each
+// direct child's own transmissions keep its slot fresh on their own.
+bool WHAT_SourceInChildSubtree(uint16_t _source, uint16_t _child)
+{
+  if (_source == _child) return true;
+  if ((_child & 0x0FFF) == 0)
+  { // _child is a trunk root: every address in its trunk is below it.
+    return ((_source & 0xF000) == (_child & 0xF000));
+  }
+  uint16_t _ancestor = _source;
+  for (uint8_t _step = 0; _step < 3; _step++)
+  {
+    if ((_ancestor & 0x0FFF) == 0) break;  // Reached a trunk root: its parent is a seam, not derivable.
+    if (_ancestor & 0x000F)      _ancestor &= 0xFFF0;  // Zero the ones path digit.
+    else if (_ancestor & 0x00F0) _ancestor &= 0xFF0F;  // Zero the tens path digit.
+    else                         _ancestor &= 0xF0FF;  // Zero the hundreds path digit.
+    if (_ancestor == _child) return true;
+  }
+  return false;
+}
+
+// PROPOSED (Nov 25, 2026): the slot of the child the lost indication names -
+// worst first: a lost TRUNK child outranks any fill child (a whole subtree is
+// stranded behind it), then the longest-lost. 0xFF when no child is lost.
+// The replacement offer acts on exactly this slot, and it is recomputed at
+// the moment of the offer, so a child heard again in the meantime is never
+// replaced by mistake.
+uint8_t WHAT_IndicatedLostChild(void)
+{
+  uint8_t _worst = 0xFF;
+  uint32_t _worstHeard = 0xFFFFFFFF;
+  for (uint8_t _i = 1; _i < ChildMaxIndex; _i++)
+  {
+    if (gblNetwork.children[_i].ChildAddress == 0xFFFF) continue;
+    if ((uint32_t)(millis() - gblNetwork.childLastHeard[_i]) <= (uint32_t)WHAT_CHILD_LOST_MS) continue;  // Heard recently enough - not lost.
+    if ((gblNetwork.children[_i].ChildAddress & 0x0FFF) == 0) return _i;  // A lost trunk child outranks all fill children.
+    if (gblNetwork.childLastHeard[_i] < _worstHeard)
+    {
+      _worstHeard = gblNetwork.childLastHeard[_i];
+      _worst = _i;
+    }
+  }
+  return _worst;
+}
+
 // (gblRegistry.reusableSlot moved into gblRegistry.reusableSlot, in z_WHAT.h - Nov 2026 rename pass.)
 //uint8_t gblRegistry.reusableSlot = 0xFF; //This is registered once, then the callback can be changed
 //When connecting to the network, several messages are only valid
@@ -292,6 +344,7 @@ struct WHAT_RxFlags
   bool f_NETWORK_JOIN_ABORT_03 = false;     // User abort of the acceptance process.
   bool f_REQUEST_ACK_03 = false;            // Send out a request for any existing network with my proposed PANID to respond.
   bool f_REPLY_ACKNOWLEDGE_03 = false;      // While a new network is forming, requests existing network to claim its PANID
+  bool f_REPLY_ABANDON_CONFIRM_03 = false;  // PROPOSED (Nov 25, 2026): my parent blanked AND saved my child record - my reset to preemie may proceed.
 };
 WHAT_RxFlags gblRxFlags;
 
@@ -334,15 +387,15 @@ void WHAT_begin(void)
   Serial.print(F("Network State set to 'WHAT_STARTUP' "));Serial.println(gblMailbox.networkState,DEC);
 
   Serial.println(F("PANID\tmySourceAddress\tgblNetwork.parentAddress\tmyLatchkey\tgblMailbox.networkState"));
-  Serial.print(gblNetwork.panID,HEX);Serial.print(" \t");Serial.print(mySourceAddress,HEX);Serial.print(" \t\t");Serial.print(gblNetwork.parentAddress,HEX);Serial.print(" \t");Serial.print(myLatchKeyNumber,HEX);Serial.print(" \t\t\t");Serial.println(gblMailbox.networkState,HEX);
+  Serial.print(gblNetwork.panID,HEX);Serial.print(F(" \t"));Serial.print(mySourceAddress,HEX);Serial.print(F(" \t\t"));Serial.print(gblNetwork.parentAddress,HEX);Serial.print(F(" \t"));Serial.print(myLatchKeyNumber,HEX);Serial.print(F(" \t\t\t"));Serial.println(gblMailbox.networkState,HEX);
   #ifdef __WHAT_FULLLINK_h
     Serial.print(F("Links: 0x"));
     for(uint8_t _i=0; _i<numWHATLinks; _i++)
     {
-      Serial.print(gblLink.links[_i],HEX);Serial.print(" \t0x");
+      Serial.print(gblLink.links[_i],HEX);Serial.print(F(" \t0x"));
     }
   #endif
-  Serial.println(" ");
+  Serial.println(F(" "));
   mrf.init();
   Mrf24j_begin (gblNetwork.panID, mySourceAddress);
   // ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -352,6 +405,7 @@ void WHAT_begin(void)
   RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
   RegisterWHATMessage (PROPOSE_CHILD_NUMBER_05, &Rx_PROPOSE_CHILD_NUMBER_05); // This is an entry that will not change.
   RegisterWHATMessage (ABANDON_CHILD_05, &Rx_ABANDON_CHILD_05); // This is an entry that will not change.
+  RegisterWHATMessage (REPLY_ABANDON_CONFIRM_03, &Rx_REPLY_ABANDON_CONFIRM_03); // This is an entry that will not change. (PROPOSED, Nov 25, 2026)
   RegisterWHATMessage (NETWORK_HEARTBEAT_03, &Rx_NETWORK_HEARTBEAT_03); // This is an entry that will not change. (STEP 1, Nov 24, 2026)
  
    // Trying to make these as re-usable messages.
@@ -372,6 +426,7 @@ void WHAT_begin(void)
     if(gblNetwork.children[_i].ChildAddress<0xFFFF)
     {
       gblNetwork.hasChildren = true;
+      gblNetwork.childLastHeard[_i] = millis();  // PROPOSED (Nov 25, 2026): a restored child gets a full lost interval from boot to reappear before it can be flagged lost.
       #ifdef RX_MONITOR
       Serial.print(F("Has Children:"));Serial.println(_i);
       #endif
@@ -407,16 +462,16 @@ void RX_WHAT (void)
   static uint8_t _st_RxbufferIndex = 0;
   if (WHAT_Buffer_RX(gblQueues.rxPacket,_st_RxbufferIndex) )
   { //TOC  WHAT_Buffer_RX returns TRUE if there is a new message in the recieve buffer.
-    Serial.print("\nRx WHAT");
+    Serial.print(F("\nRx WHAT"));
 
        #ifdef DX_ONLY
-        Serial.print("\nGBL_rx_index: ");Serial.print(gblRadio.rxIndex);
-        Serial.print("\t_RxbufferIndex: ");Serial.print(_st_RxbufferIndex);
+        Serial.print(F("\nGBL_rx_index: "));Serial.print(gblRadio.rxIndex);
+        Serial.print(F("\t_RxbufferIndex: "));Serial.print(_st_RxbufferIndex);
         Serial.println(F("\nLength\tCONTROL\tRx pan_id\tdestination\tsource"));
-        Serial.print(gblQueues.rxPacket.frame_length,DEC);Serial.print("\t  ");
-        Serial.print(gblQueues.rxPacket.frame_control,HEX);Serial.print("\t  ");
-        Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print("\t\t\t  ");
-        Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print("\t  ");
+        Serial.print(gblQueues.rxPacket.frame_length,DEC);Serial.print(F("\t  "));
+        Serial.print(gblQueues.rxPacket.frame_control,HEX);Serial.print(F("\t  "));
+        Serial.print(gblQueues.rxPacket.pan_id,HEX);Serial.print(F("\t\t\t  "));
+        Serial.print(gblQueues.rxPacket.destination,HEX);Serial.print(F("\t  "));
         Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
     // read the payload
         Serial.print(F("Adr:"));Serial.print(WHAT_ADR_PAYLOADSTART,HEX);Serial.print(F(":"));
@@ -427,10 +482,10 @@ void RX_WHAT (void)
             //gblQueues.rxPacket.payload[_i] = Mrf24j_Read(WHAT_ADR_PAYLOADSTART + _i);
               Serial.print(F("0x"));Serial.print(gblQueues.rxPacket.payload[_i],HEX);Serial.print(F(", "));
         }
-        Serial.print("FCS: ");Serial.print(gblQueues.rxPacket.payload[_payloadSize+2],HEX);Serial.print(gblQueues.rxPacket.payload[_payloadSize+1],HEX);;
-        Serial.print("\tlqi: ");Serial.print(gblQueues.rxPacket.lqi,HEX);
-        Serial.print("\trssi: ");Serial.println(gblQueues.rxPacket.rssi,HEX);
-        Serial.print("\n");
+        Serial.print(F("FCS: "));Serial.print(gblQueues.rxPacket.payload[_payloadSize+2],HEX);Serial.print(gblQueues.rxPacket.payload[_payloadSize+1],HEX);;
+        Serial.print(F("\tlqi: "));Serial.print(gblQueues.rxPacket.lqi,HEX);
+        Serial.print(F("\trssi: "));Serial.println(gblQueues.rxPacket.rssi,HEX);
+        Serial.print(F("\n"));
 
       #endif
 // TOC Indicate the network is alive 
@@ -439,6 +494,23 @@ void RX_WHAT (void)
         gbl_t_NetworkAlive = millis() + GLB_T_NETWORKALIVE_RESET; // This allows an indication of any other devices on the network.
         f_gbl_t_NetworkAlive = true;      // Flag that other network nodes HAVE been seen (alive timer reset)
         WHAT_RandomStir(((uint32_t)gblQueues.rxPacket.rssi << 8) | gblQueues.rxPacket.lqi);  // STEP 1: radio noise stirs the randomness pool on every packet heard.
+    }
+
+// TOC Per-child liveness (PROPOSED, Nov 25, 2026)
+// Any traffic on this PANID from inside a child's subtree marks that child
+// heard. WHATHouseKeeping compares these stamps against WHAT_CHILD_LOST_MS
+// to raise the lost-child indication. A preemie's source (0xFFFF) and this
+// device's own address credit nobody.
+   if((gblQueues.rxPacket.pan_id == gblNetwork.panID) && (gblQueues.rxPacket.sourceaddress != 0xFFFF) && (gblQueues.rxPacket.sourceaddress != mySourceAddress))
+    {
+      for (uint8_t _i = 1; _i < ChildMaxIndex; _i++)
+      {
+        if (gblNetwork.children[_i].ChildAddress == 0xFFFF) continue;
+        if (WHAT_SourceInChildSubtree(gblQueues.rxPacket.sourceaddress, gblNetwork.children[_i].ChildAddress))
+        {
+          gblNetwork.childLastHeard[_i] = millis();
+        }
+      }
     }
 
 // TOC Identify the message type and act accordingly
@@ -456,11 +528,11 @@ void RX_WHAT (void)
         //gblQueues.rxPacket.packet_length = Mrf24j_Read(WHAT_ADR_PACKETLENGTH);
         //Serial.print("Address "); Serial.print(WHAT_ADR_RxSTART,HEX); Serial.print(" (length) : ");Serial.println(_length);
         #ifdef MATCH_MONITOR  // PROPOSED (Nov 25, 2026): match confirmations behind their own switch (Gary - cleaner serial log). The raw dump above already shows pan / destination / source.
-        Serial.print("pan_id : 0x"); Serial.println(gblQueues.rxPacket.pan_id,HEX);
-        Serial.print("gblNetwork.panID : 0x"); Serial.println(gblNetwork.panID,HEX);
+        Serial.print(F("pan_id : 0x")); Serial.println(gblQueues.rxPacket.pan_id,HEX);
+        Serial.print(F("gblNetwork.panID : 0x")); Serial.println(gblNetwork.panID,HEX);
         
-        Serial.print("destination : 0x"); Serial.println(gblQueues.rxPacket.destination,HEX);
-        Serial.print("sourceaddress :"); Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
+        Serial.print(F("destination : 0x")); Serial.println(gblQueues.rxPacket.destination,HEX);
+        Serial.print(F("sourceaddress :")); Serial.println(gblQueues.rxPacket.sourceaddress,HEX);
         #endif
         //_length= gblQueues.rxPacket.frame_length - _ZIGBEE_HEADER_LENGTH;
           //Serial.println ("A message Arrived. ");
@@ -474,7 +546,7 @@ void RX_WHAT (void)
             if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.pan_id == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
               #ifdef MATCH_MONITOR
-                      Serial.println("Destination Match");
+                      Serial.println(F("Destination Match"));
               #endif
               WHAT_PayloadHandler();
             } // End If this message is targeting this device
@@ -509,7 +581,7 @@ void RX_WHAT (void)
             if ((gblQueues.rxPacket.destination == mySourceAddress) | (gblQueues.rxPacket.destination == GLOBAL_DESTINATION))
             { // The recieved packet is targeting this device, or is general communications
               #ifdef MATCH_MONITOR
-              Serial.println("Destination Match");
+              Serial.println(F("Destination Match"));
               #endif
               WHAT_PayloadHandler();
             } // End If this message is targeting this device
@@ -517,7 +589,7 @@ void RX_WHAT (void)
           else
           {
             #ifdef MATCH_MONITOR
-            Serial.print("No Destination Match: ");Serial.println(gblQueues.rxPacket.pan_id);
+            Serial.print(F("No Destination Match: "));Serial.println(gblQueues.rxPacket.pan_id);
             #endif
           }
         }
@@ -572,7 +644,7 @@ void RX_WHAT (void)
             // mask to isolate this child's children and grandchildren in the destination  and source address.
             // This is multiplying a comparison with a number.  A false comparison resolves to 0 and when multiplied, removes the term from the equation.
             uint16_t myMask = ( ((mySourceAddress > 0x00) * 0x0F) | ((mySourceAddress > 0x0F) * 0x0FF) | ((mySourceAddress > 0xFF) * 0xFFF) );
-            Serial.print("Mask:0x");Serial.println(myMask);
+            Serial.print(F("Mask:0x"));Serial.println(myMask);
              //Apply the mask to the incoming source address to verify that the lineage matches this device before sending this message.
             uint16_t _temporary = gblQueues.rxPacket.sourceaddress & myMask;
             if(_temporary == mySourceAddress) _retransmit_message = true; //This message came FROM one of my (grand)children. 
@@ -595,7 +667,7 @@ void RX_WHAT (void)
             WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
             _WHAT_Tx_Packet = gblQueues.rxPacket; // Make it the same as the incoming message.
             #ifdef RX_MONITOR
-            Serial.println("Retransmitting");
+            Serial.println(F("Retransmitting"));
             #endif
         }
     }
@@ -640,7 +712,7 @@ void WHAT_PayloadHandler(void)
         if ( gblRegistry.message[_i]. MessageID ==  _thisMessageID)
         {
          #ifdef MATCH_MONITOR
-          Serial.print(F("MID Match. Index:"));Serial.print(_i); Serial.print("MID:");Serial.println(_thisMessageID, HEX);
+          Serial.print(F("MID Match. Index:"));Serial.print(_i); Serial.print(F("MID:"));Serial.println(_thisMessageID, HEX);
           Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
           #endif  
          (* gblRegistry.message[_i].callback)(gblQueues.rxPacket, _index);
@@ -650,7 +722,7 @@ void WHAT_PayloadHandler(void)
         #ifdef MATCH_MONITOR
         else
         {
-          Serial.print(_thisMessageID,HEX);Serial.print("<>");Serial.println(gblRegistry.message[_i]. MessageID,HEX);
+          Serial.print(_thisMessageID,HEX);Serial.print(F("<>"));Serial.println(gblRegistry.message[_i]. MessageID,HEX);
         }
         #endif
       }// End search registered messages for a match.
@@ -693,6 +765,30 @@ void  WHATHouseKeeping(void)
         _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_HEARTBEAT_03);
         _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_HEARTBEAT_03);
         WHAT_TransmitPacket(_WHAT_Tx_Packet);
+     }
+  // TOC Lost-child watch (PROPOSED, Nov 25, 2026)
+  // Keep the mailbox's lost indication current: the indicated child (worst
+  // first - see WHAT_IndicatedLostChild) and whether any child is lost at
+  // all. The WHAT_NET_ALIVE state blinks the light RED while a child is
+  // lost - indication only; no button act follows from it (Gary's ruling,
+  // Nov 25, 2026). A child heard again clears its own flag here - nothing
+  // was ever erased, so a power outage that comes back needs no ceremony
+  // at all.
+     {
+       static uint16_t _st_lastLostAddress = 0xFFFF;  // For a one-time serial note when the indicated child changes.
+       uint8_t _lostSlot = WHAT_IndicatedLostChild();
+       gblMailbox.childLost = (_lostSlot != 0xFF);
+       gblMailbox.childLostAddress = gblMailbox.childLost ? gblNetwork.children[_lostSlot].ChildAddress : 0xFFFF;
+       if (gblMailbox.childLostAddress != _st_lastLostAddress)
+       {
+         _st_lastLostAddress = gblMailbox.childLostAddress;
+         #ifdef CHILD_MONITOR
+         if (gblMailbox.childLost)
+         {
+           Serial.print(F("Child lost: 0x")); Serial.println(gblMailbox.childLostAddress,HEX);
+         }
+         #endif
+       }
      }
   }
 }
@@ -1041,6 +1137,14 @@ void Rx_REQUEST_JOIN_NETWORK_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
    {
      gblJoining.heardTempID = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
    }
+   // PROPOSED (Nov 25, 2026): a member also latches the search's replacement
+   // flag (the trailing flags byte, present when the block length is 6 or
+   // more; older searches have no such byte and read as ordinary). Only the
+   // member holding a lost record acts on it, and only with its own button.
+   if (mySourceAddress < 0xFFFF)
+   {
+     gblJoining.heardReplaceIntent = ((_WHAT_Rx_Packet.payload[_index] >= 6) && (_WHAT_Rx_Packet.payload[_index + 5] != 0));
+   }
       #ifdef DX_ONLY
         Serial.println(F("gblRxFlags.f_REQUEST_JOIN_NETWORK_03"));
         Serial.print(F("gblMailbox.networkState:")); Serial.println(gblMailbox.networkState, DEC);
@@ -1120,6 +1224,54 @@ void Rx_REPLY_ACKNOWLEDGE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
     #endif
 }
 
+// *****************
+// TOC Individual Transmit messages
+// PROPOSED (Nov 25, 2026): the leaver's side of the abandon handshake, built
+// once and called from the reset ritual (and its retries). The proof is
+// STEP 1's: WHAT_Mix32(my latchkey, my address, parent address) - the
+// latchkey itself never crosses the air.
+void Tx_ABANDON_TO_PARENT(void)
+{
+  WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+  _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+  _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+  _WHAT_Tx_Packet.destination = gblNetwork.parentAddress;
+  _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
+  uint8_t _index = 0;
+  _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
+  _WHAT_Tx_Packet.payload[_index++] = 7; //MID length (including this byte)
+  _WHAT_Tx_Packet.payload[_index++] = highByte(ABANDON_CHILD_05);
+  _WHAT_Tx_Packet.payload[_index++] = lowByte(ABANDON_CHILD_05);
+  WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(myLatchKeyNumber, mySourceAddress, gblNetwork.parentAddress)); _index += 4;
+  WHAT_TransmitPacket(_WHAT_Tx_Packet);
+}
+
+// *****************
+// TOC Individual Recieve messages
+// PROPOSED (Nov 25, 2026): my parent has blanked AND saved my child record.
+// The reset ritual in WHAT_StateCheck is waiting on this flag.
+void Rx_REPLY_ABANDON_CONFIRM_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
+{
+  gblRxFlags.f_REPLY_ABANDON_CONFIRM_03 = true;
+}
+
+// PROPOSED (Nov 25, 2026): the tail of the reset-to-preemie ritual, shared by
+// both exits of the abandon handshake (confirmed, and retries exhausted) so
+// the wipe itself can never drift between them.
+void WHAT_CompletePreemieReset(void)
+{
+  WHAT_Default_EEPROM_Values();
+  WHAT_StoreEEPROM();
+
+  Serial.println(F("Preemie state restored."));
+  gblMailbox.networkState = WHAT_PREEMIE_RESTORED;  //
+  #ifdef CHILD_MONITOR
+   Serial.println(F("gblMailbox.networkState: WHAT_PREEMIE_RESTORED ")); Serial.println(WHAT_PREEMIE_RESTORED);
+  #endif
+  gblScratch.timer2 = millis()+ 1000; // Give happy indication for a second once restored.
+  _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 50 );
+}
+
 // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
 // &&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&
@@ -1134,6 +1286,7 @@ void WHAT_StateCheck(void)
   #define _WHAT_NEW_CHILD_TIME_DELAY 60000 // Only stay in new child mode for 30 seconds if not accepted earlier.
 
   bool default_case = true;    // Each routine will mark this as false so if NONE are executed, default will be true.
+  static uint8_t _st_AbandonTries = 0;  // PROPOSED (Nov 25, 2026): how many times the leaver has sent its ABANDON_CHILD_05 in the reset ritual's confirmation wait.
  //Serial.println("memberloop");
   //static double gbl_t_flash = millis();
   //static WHAT_State _last_WHAT_network_State = WHAT_STARTUP;
@@ -1160,7 +1313,20 @@ void WHAT_StateCheck(void)
           {
             // This device has never been connected to a network.
             // Handle it as a preemie.
-            gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
+            // PROPOSED (Nov 25, 2026): unless its network button is being held
+            // at power on - the same boot check a member gets (which for a
+            // member offers the reset ritual), read on a preemie as "I am
+            // available to replace a missing unit." Until now the held button
+            // did nothing at all for a preemie.
+            if (gblMailbox.networkButton == HIGH) // Button is active high
+            {
+              gblScratch.timer1 = millis() + 100;  // The button must still be held when this expires (the member check's hold time).
+              gblMailbox.networkState = WHAT_REPLACE_INTENT_CHECK;
+            }
+            else
+            {
+              gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
+            }
           //Serial.print(F("gblMailbox.networkState -> WHAT_PRE_PREEMIE_NETWORK_SEARCH")); Serial.println(gblMailbox.networkState);
           }
       }//break;
@@ -1212,7 +1378,32 @@ void WHAT_StateCheck(void)
       // No lights during this check.  if the button is pressed at power on, validate user request to re-preemie.
     }//break;
 
-    if(gblMailbox.networkState == WHAT_RESET_PREMIE_INITIATED )//    case WHAT_RESET_PREMIE_INITIATED:   // Button was held at 
+   // ************************************************************************
+    // PROPOSED (Nov 25, 2026): a preemie validating a held button at power on.
+    // Released early, it was an ordinary start; still held at the deadline, it
+    // declares replacement intent and searches with a steady WHITE light
+    // instead of the usual cycling.
+    if(gblMailbox.networkState == WHAT_REPLACE_INTENT_CHECK )
+    {
+          default_case = false;  // Used to verify that one of the cases executed.
+      if (gblMailbox.networkButton == LOW) // Button released before the hold time - an ordinary preemie start.
+      {
+        gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
+      }
+      else if (gblScratch.timer1 <= millis())
+      { // Button held for at least the minimum hold time - replacement intent declared.
+        gblJoining.replaceIntent = true;
+        #ifdef CHILD_MONITOR
+          Serial.println(F("Button held at power on: replacement intent"));
+        #endif
+        gblMailbox.networkState = WHAT_PRE_PREEMIE_NETWORK_SEARCH;
+      }
+    // TOC Handle Light color based on network status
+    // Steady WHITE while the hold is being read.
+      _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_WHITE,/*Light Color 2 time*/ 50 );
+    }//  break;
+
+    if(gblMailbox.networkState == WHAT_RESET_PREMIE_INITIATED )//    case WHAT_RESET_PREMIE_INITIATED:   // Button was held at
     {
           default_case = false;  // Used to verify that one of the cases executed.
       if (gblMailbox.networkButton == HIGH) // Button is active high
@@ -1292,34 +1483,21 @@ void WHAT_StateCheck(void)
       { //The button was pressed again.  Reset to PREEMIE mode.
         Serial.println(F("Reset Preemie criteria complete"));
         // preemie creation criteria met.   restore to preemie state, and continue with program initialization
-        // Send an abandon network message so the parent will release the child slot, then revert to compile time values.
-        WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
-        _WHAT_Tx_Packet.WHAT_MAC_MESSAGE; 
-        _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
-        _WHAT_Tx_Packet.destination = gblNetwork.parentAddress;
-        _WHAT_Tx_Packet.sourceaddress = mySourceAddress;
-        uint8_t _index = 0;
-        _WHAT_Tx_Packet.payload[_index++] = 8; //Total payload length (including this byte)
-        _WHAT_Tx_Packet.payload[_index++] = 7; //MID length (including this byte)
-        _WHAT_Tx_Packet.payload[_index++] = highByte(ABANDON_CHILD_05);
-        _WHAT_Tx_Packet.payload[_index++] = lowByte(ABANDON_CHILD_05);
-        // STEP 1 (Nov 24, 2026): send a PROOF of the latchkey, never the latchkey itself.
-        WHAT_PayloadPut32(_WHAT_Tx_Packet.payload, _index, WHAT_Mix32(myLatchKeyNumber, mySourceAddress, gblNetwork.parentAddress)); _index += 4;
-          WHAT_TransmitPacket(_WHAT_Tx_Packet);
-
-        WHAT_Default_EEPROM_Values();
-        WHAT_StoreEEPROM();
-        
-        Serial.println(F("Preemie state restored."));
-        gblMailbox.networkState = WHAT_PREEMIE_RESTORED;  //
+        // PROPOSED (Nov 25, 2026): the abandon is now a handshake, not a
+        // fire-and-forget. Send ABANDON_CHILD_05 (proof of the latchkey, never
+        // the latchkey itself), then WAIT in WHAT_RESET_PREMIE_AWAITING_CONFIRM
+        // for the parent's REPLY_ABANDON_CONFIRM_03 - which the parent sends
+        // only after blanking the slot AND saving it to EEPROM - before
+        // wiping this device. Bounded retries, then the wipe happens anyway:
+        // leaving is a local act and is never hostage to the parent.
+        Tx_ABANDON_TO_PARENT();
+        gblRxFlags.f_REPLY_ABANDON_CONFIRM_03 = false;   // Clear the message flag so only a fresh confirmation counts.
+        _st_AbandonTries = 1;
+        gblScratch.timer1 = millis() + 2000; // Time to wait for the confirmation before re-sending.
+        gblMailbox.networkState = WHAT_RESET_PREMIE_AWAITING_CONFIRM;  //
         #ifdef CHILD_MONITOR
-         Serial.println(F("gblMailbox.networkState: WHAT_PREEMIE_RESTORED ")); Serial.println(WHAT_PREEMIE_RESTORED);
+         Serial.println(F("gblMailbox.networkState: WHAT_RESET_PREMIE_AWAITING_CONFIRM ")); Serial.println(WHAT_RESET_PREMIE_AWAITING_CONFIRM);
         #endif
-        gblScratch.timer2 = millis()+ 1000; // Give happy indication for a second once restored.
-    // TOC Handle Light color based on network status
-    // Preemie state is restored. make the light green.
-        //gblMailbox.networkStateColor = WHAT_LIGHT_GREEN; 
-        _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 50 );
 
       }// End if the button was pressed.
       else
@@ -1335,6 +1513,46 @@ void WHAT_StateCheck(void)
       }
     // TOC Handle Light color based on network status
     // Preemie reset started. Pressing again activates.  fast flash green until activated.
+      _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
+    }//  break;
+
+   // ************************************************************************
+    // PROPOSED (Nov 25, 2026): the leaver waits for its abandon to be
+    // confirmed. The parent confirms only after the slot is blanked AND saved,
+    // so a confirmed leaver knows its old address is genuinely free - for a
+    // replacement, or for a trunk re-offer - before it wipes itself.
+    if(gblMailbox.networkState == WHAT_RESET_PREMIE_AWAITING_CONFIRM )
+    {
+          default_case = false;  // Used to verify that one of the cases executed.
+      if (gblRxFlags.f_REPLY_ABANDON_CONFIRM_03)
+      { // The parent has released the slot, durably. Wipe and restore preemie state.
+        gblRxFlags.f_REPLY_ABANDON_CONFIRM_03 = false; // clear the message flag when it is used.
+        #ifdef CHILD_MONITOR
+          Serial.println(F("Abandon confirmed by parent"));
+        #endif
+        WHAT_CompletePreemieReset();
+      }
+      else if (gblScratch.timer1 <= millis())
+      { // No confirmation yet. Re-send a bounded number of times, then reset anyway.
+        if (_st_AbandonTries < 3)
+        {
+          Tx_ABANDON_TO_PARENT();
+          _st_AbandonTries++;
+          gblScratch.timer1 = millis() + 2000;
+          #ifdef CHILD_MONITOR
+            Serial.println(F("No abandon confirmation yet - re-sent"));
+          #endif
+        }
+        else
+        {
+          #ifdef CHILD_MONITOR
+            Serial.println(F("No abandon confirmation - resetting anyway"));
+          #endif
+          WHAT_CompletePreemieReset();
+        }
+      }
+    // TOC Handle Light color based on network status
+    // Same fast green flash as the activation wait.
       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 50 );
     }//  break;
 
@@ -1392,12 +1610,13 @@ void WHAT_StateCheck(void)
               _WHAT_Tx_Packet.destination = 0xFFFF;
               _WHAT_Tx_Packet.sourceaddress = 0xFFFF;
               uint8_t _index = 0;
-              _WHAT_Tx_Packet.payload[_index++] = 6; //Total payload length (including this byte)
-              _WHAT_Tx_Packet.payload[_index++] = 5; //MID length (including this byte)
+              _WHAT_Tx_Packet.payload[_index++] = 7; //Total payload length (including this byte) - PROPOSED (Nov 25, 2026): was 6 before the flags byte was appended.
+              _WHAT_Tx_Packet.payload[_index++] = 6; //MID length (including this byte) - PROPOSED (Nov 25, 2026): was 5.
               _WHAT_Tx_Packet.payload[_index++] = highByte(REQUEST_JOIN_NETWORK_03);
               _WHAT_Tx_Packet.payload[_index++] = lowByte(REQUEST_JOIN_NETWORK_03);
               _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.tempID);  // STEP 1 (Nov 24, 2026): this attempt's temp ID.
               _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.tempID);
+              _WHAT_Tx_Packet.payload[_index++] = gblJoining.replaceIntent ? 1 : 0;  // PROPOSED (Nov 25, 2026): flags byte - 0x01 = this preemie offers itself as a replacement for a lost child (button held at power on). Appended at the end, so older builds reading the temp ID at its fixed offset are unaffected.
               WHAT_TransmitPacket(_WHAT_Tx_Packet);
               #ifdef CHILD_MONITOR
               Serial.println(F("Tx WHAT_PREEMIE_NETWORK_SEARCH ")); Serial.println(millis());
@@ -1406,7 +1625,15 @@ void WHAT_StateCheck(void)
                // TOC Handle Light color based on network status
             // Preemie state Looking for available network.  Toggle blue on/off while waiting.
             // Toggle occurs at the same time as a new message is transmitted (once per second)
-              if(gblMailbox.networkStateColor != WHAT_LIGHT_BLUE )
+            // PROPOSED (Nov 25, 2026): a replacement-intent preemie shows steady
+            // WHITE instead of the toggle - "I am available to replace a
+            // missing unit" - so the operator can tell the two searches apart
+            // from across the room.
+              if (gblJoining.replaceIntent)
+              {
+                gblMailbox.networkStateColor = WHAT_LIGHT_WHITE;
+              }
+              else if(gblMailbox.networkStateColor != WHAT_LIGHT_BLUE )
               {
                 gblMailbox.networkStateColor = WHAT_LIGHT_BLUE;
               }
@@ -1522,7 +1749,8 @@ void WHAT_StateCheck(void)
           //myChildIndex = 0;             // When forming a new network, this device will start with no children.
           mySecurity = myLatchKeyNumber; // use this device's latchkey number as the base security number.
           WHAT_set_SourceAddress(mySourceAddress);
-      
+          gblJoining.replaceIntent = false;  // PROPOSED (Nov 25, 2026): a founder is nobody's replacement - the intent ends here.
+
           //Serial.print("Pre-Store PANID:0x"); Serial.println(gblNetwork.panID);
           WHAT_StoreEEPROM();
           Serial.println(F("EEPROM Stored"));
@@ -1570,6 +1798,7 @@ void WHAT_StateCheck(void)
               gblJoining.panID = 0xFFFF; // These are collected in  Rx_PROPOSE_CHILD_NUMBER_07 to
               gblJoining.sourceAddress = 0xFFFF; // identify the lowest offered address seen.
               gblJoining.latchkey = 0xFFFFFFFF;
+              gblJoining.replaceOfferReceived = false; // PROPOSED (Nov 25, 2026): a fresh collection round - no replacement offer taken yet.
               gblRegistry.message[gblRegistry.reusableSlot].MessageID = NETWORK_ALLOW_PREEMIE_04;  // these are prospective parents offering free addresses.
               gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_NETWORK_ALLOW_PREEMIE_04; // Message callback set here to collect the responses
              gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
@@ -1695,7 +1924,7 @@ void WHAT_StateCheck(void)
                   // committed (globals + EEPROM) when the join is confirmed.
                   Serial.println(F("Tx Parent Chosen"));
                   Serial.println(F("PANID\tmySourceAddress\tmyLatchKeyNumber\tmyParentAddress"));
-                  Serial.print(gblJoining.panID,HEX);Serial.print("\t");Serial.print(gblJoining.sourceAddress,HEX);Serial.print("\t");Serial.print(myLatchKeyNumber,HEX);Serial.print("\t");Serial.println(gblJoining.parent,HEX);
+                  Serial.print(gblJoining.panID,HEX);Serial.print(F("\t"));Serial.print(gblJoining.sourceAddress,HEX);Serial.print(F("\t"));Serial.print(myLatchKeyNumber,HEX);Serial.print(F("\t"));Serial.println(gblJoining.parent,HEX);
                   //gblMailbox.networkButton = LOW;   // indicate that the button is used so it will not roll into the next function.
                   gblMailbox.networkState = WHAT_PRE_CONFIRM_NEW_CHILD;  // Network light to indicate someone else's network was sucessfully joined.
 
@@ -1763,6 +1992,8 @@ void WHAT_StateCheck(void)
             WHAT_set_SourceAddress(mySourceAddress);
             gblNetwork.parentAddress = gblJoining.parent;
             WHAT_StoreEEPROM();
+            gblJoining.replaceIntent = false;        // PROPOSED (Nov 25, 2026): the intent ends at the join - this device is a member now (an ordinary member, or the replacement for a lost child; either way the offer it took has been honored).
+            gblJoining.replaceOfferReceived = false; // PROPOSED (Nov 25, 2026): likewise, the taken-offer marker has done its work.
             // PROPOSED trial (Nov 25, 2026): Gary asked for the assigned address
             // to be printed once the assignment is complete (here, post-commit).
             #ifdef CHILD_MONITOR
@@ -1853,6 +2084,16 @@ void WHAT_StateCheck(void)
                 gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ;
                 Serial.print(F("gblMailbox.networkState: WHAT_PRE_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
             }
+       // PROPOSED (Nov 25, 2026): note what is NOT here - there is no
+       // button-erase of a lost child's record (Gary's ruling, Nov 25, 2026,
+       // reversing the indication-gated erase sketched earlier the same day).
+       // The RED blink is information only. Pressing this device's network
+       // button while a child is lost does nothing at all; the lost record
+       // leaves the table only by the child's own verified ABANDON, or by a
+       // replacement preemie (button held at ITS power on) being accepted
+       // with THIS device's button while it asks - the replacement path in
+       // WHAT_NEW_CHILD_REQ. A record therefore can never be freed by a
+       // button press during a power outage, which is the point.
        #ifdef __WHAT_FULLLINK_h
             if (gblMailbox.networkButton == HIGH)   // Holding the network button will attempt to "link" this device with another device
             {
@@ -1876,7 +2117,11 @@ void WHAT_StateCheck(void)
             }
             // *****************
 
-           if(f_gbl_t_NetworkAlive )     // Other nodes seen within the alive timeout - blink GREEN
+           if (gblMailbox.childLost)     // PROPOSED (Nov 25, 2026): a lost child outranks the alive blink - blink RED on the parent that lost one, until the child returns or a replacement takes its place. Indication only: no button act follows from it.
+           {
+           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_RED,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 500 );
+           }
+           else if(f_gbl_t_NetworkAlive )     // Other nodes seen within the alive timeout - blink GREEN
            {
             // While in the alive state, blink the light every few seconds.
            _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 5000 );
@@ -1947,9 +2192,26 @@ void WHAT_StateCheck(void)
             Serial.print(F("gblMailbox.networkButton Pressed: ")); Serial.println(gblMailbox.networkButton);
          }
         
-         if ((gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04) |  (gblMailbox.networkButton == HIGH))
+         // PROPOSED (Nov 25, 2026): the replacement path is checked first. A
+         // preemie that declared replacement intent may take over THIS
+         // device's indicated lost child's record - but only when THIS
+         // device's own network button is the one pressed (a received allow
+         // from another member can never give away my lost slot), and the
+         // button press above has already broadcast the allow the preemie
+         // needs in order to accept at all.
+         if (gblJoining.heardReplaceIntent && (gblMailbox.networkButton == HIGH) && (WHAT_IndicatedLostChild() != 0xFF))
+         {
+             gblJoining.replaceOffer = true;
+             gblJoining.replaceSlot = WHAT_IndicatedLostChild();
+             #ifdef CHILD_MONITOR
+               Serial.print(F("Replacement offered for lost child: 0x")); Serial.println(gblNetwork.children[gblJoining.replaceSlot].ChildAddress,HEX);
+             #endif
+             gblMailbox.networkState = WHAT_PRE_NEW_CHILD_OFFER; //
+         }
+         else if ((gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04) |  (gblMailbox.networkButton == HIGH))
          {
            // if THIS device or another device allowed a child to join, change to that state.
+           gblJoining.replaceOffer = false;  // PROPOSED (Nov 25, 2026): an ordinary offer attempt - make sure no stale replacement arming survives into it.
            uint8_t _WHAT_Child_Used = isChildAvailable(); // Check and see if a Child location if available. (local since Nov 2026 - was a global)
              if(_WHAT_Child_Used < 0xFF)
              {
@@ -2033,6 +2295,8 @@ void WHAT_StateCheck(void)
       if (gblScratch.timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
         {
             Serial.println(F("New Child Timeout"));
+            gblJoining.replaceOffer = false;        // PROPOSED (Nov 25, 2026): the attempt is over - disarm any replacement offer and forget the heard intent.
+            gblJoining.heardReplaceIntent = false;  // PROPOSED (Nov 25, 2026): the next attempt latches its own.
             gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
         }
         if(gblRxFlags.f_ACCEPT_PARENT_06)
@@ -2049,8 +2313,8 @@ void WHAT_StateCheck(void)
             _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
             _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
              uint8_t _index = 0;
-             _WHAT_Tx_Packet.payload[_index++] = 11; //Total payload length (including this byte)
-             _WHAT_Tx_Packet.payload[_index++] = 10; //MID length (including this byte)
+             _WHAT_Tx_Packet.payload[_index++] = 10; //Total payload length (including this byte) - FIX (Nov 25, 2026, pre-approved by Gary): was 11, one more than the fields written (length, MID length, command, child address, 4-byte proof = 10), so an undefined buffer byte rode at the end of every JOIN_COMPLETE. Receivers parse at fixed offsets and never read it, which is why joins confirmed anyway.
+             _WHAT_Tx_Packet.payload[_index++] = 9; //MID length (including this byte) - FIX (Nov 25, 2026): was 10, same phantom byte.
              _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);
             _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03);
             _WHAT_Tx_Packet.payload[_index++] = highByte(gblScratch.u16_1);  // FIX (Nov 24, 2026): child address, handed off by Rx_ACCEPT_PARENT_06 - the broadcast announcement is the copy an unconfirmed child can actually receive (its address is still FFFF, so the directed copy is filtered out).
@@ -2255,17 +2519,40 @@ void Rx_PROPOSE_CHILD_NUMBER_05(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
   // STEP 1 (Nov 24, 2026): an offer counts only if it echoes this preemie's
   // temp ID (at _index + 5 / + 6, after the proposed address) - offers meant
   // for a different preemie's attempt must not be collected here.
-    if ((((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 4])) < gblJoining.sourceAddress)
-     && (((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 6])) == gblJoining.tempID))
+  uint16_t _offeredAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+  bool _tempMatches = (((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + (_WHAT_Rx_Packet.payload[_index + 6])) == gblJoining.tempID);
+  // PROPOSED (Nov 25, 2026): the trailing flags byte (present when the block
+  // length is 8 or more) marks a REPLACEMENT offer. A preemie that declared
+  // replacement intent takes a replacement offer ahead of any ordinary offer,
+  // however the addresses compare - it powered on with its button held for
+  // exactly this - and once one is taken, ordinary offers no longer displace it.
+  bool _isReplaceOffer = ((_WHAT_Rx_Packet.payload[_index] >= 8) && (_WHAT_Rx_Packet.payload[_index + 7] != 0));
+  if (gblJoining.replaceIntent && _isReplaceOffer && _tempMatches && !gblJoining.replaceOfferReceived)
+    { // Take the replacement offer.
+      if( gblJoining.panID == _WHAT_Rx_Packet.pan_id)  //Only accepting PANID from the PANID that sent the allowance indication.
+      {
+        gblJoining.sourceAddress = _offeredAddress;
+        gblJoining.parent = gblQueues.rxPacket.sourceaddress;
+        gblJoining.replaceOfferReceived = true;
+        #ifdef CHILD_MONITOR
+          Serial.print(F("Replacement offer taken: 0x")); Serial.println(_offeredAddress,HEX);
+        #endif
+      }
+    }
+  else if (!gblJoining.replaceOfferReceived)
+    {
+    if (((_offeredAddress) < gblJoining.sourceAddress)
+     && (_tempMatches))
     { // Keep the lowest offered child address.
       if( gblJoining.panID == _WHAT_Rx_Packet.pan_id)  //Only accepting PANID from the PANID that sent the allowance indication.
       {
         //gblJoining.panID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
-        gblJoining.sourceAddress = ((_WHAT_Rx_Packet.payload[_index + 3] * 0x100) + _WHAT_Rx_Packet.payload[_index + 4]);
+        gblJoining.sourceAddress = _offeredAddress;
         //gblJoining.latchkey = ((_WHAT_Rx_Packet.payload[_index + 5] * 0x100) + _WHAT_Rx_Packet.payload[_index + 6]);
         gblJoining.parent = gblQueues.rxPacket.sourceaddress;
         //Serial.print(F("New offered ID: 0x")); Serial.println(gblJoining.sourceAddress);
       }
+    }
     }
 }
 
@@ -2305,7 +2592,18 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
       // address this device offered - carries no index in its address at all,
       // so it takes the first open slot instead.
       uint8_t _myChild_available_Index = 0xFF;
-      if (((_WHAT_Rx_Packet.sourceaddress & 0x0FFF) == 0) && (_WHAT_Rx_Packet.sourceaddress == ((mySourceAddress & 0xF000) + 0x1000)) && (_WHAT_Rx_Packet.sourceaddress == gblJoining.sourceAddress))
+      // PROPOSED (Nov 25, 2026): a replacement accept commits into the lost
+      // child's own slot - the one slot whose occupation is the point. The
+      // accepted address must be the very address offered as a replacement,
+      // and the slot must still hold that lost record.
+      bool _isReplaceCommit = (gblJoining.replaceOffer && (_WHAT_Rx_Packet.sourceaddress == gblJoining.sourceAddress)
+        && (gblJoining.replaceSlot >= 1) && (gblJoining.replaceSlot < ChildMaxIndex)
+        && (gblNetwork.children[gblJoining.replaceSlot].ChildAddress == _WHAT_Rx_Packet.sourceaddress));
+      if (_isReplaceCommit)
+      { // Replacement child of THIS device, taking the lost child's slot.
+        _myChild_available_Index = gblJoining.replaceSlot;
+      }
+      else if (((_WHAT_Rx_Packet.sourceaddress & 0x0FFF) == 0) && (_WHAT_Rx_Packet.sourceaddress == ((mySourceAddress & 0xF000) + 0x1000)) && (_WHAT_Rx_Packet.sourceaddress == gblJoining.sourceAddress))
       { // Trunk child of THIS device.
         for (uint8_t _s = 1; _s < ChildMaxIndex; _s++)
         {
@@ -2317,13 +2615,24 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         uint16_t _myPath = mySourceAddress & 0x0FFF;
         _myChild_available_Index = (uint8_t)(((_WHAT_Rx_Packet.sourceaddress & 0x0FFF) >> (((_myPath > 0x0) * 4) + ((_myPath > 0x0F) * 4))) & 0x0F);
       }
-      
-      //and make sure that index does not already have a child in it, then fill it with this child.... 
-      if((_myChild_available_Index < ChildMaxIndex) && (gblNetwork.children[_myChild_available_Index].ChildAddress == 0xFFFF))
+
+      //and make sure that index does not already have a child in it, then fill it with this child....
+      // (PROPOSED, Nov 25, 2026: the replacement slot is the one exception -
+      // it is occupied by the lost record this commit supersedes.)
+      if((_myChild_available_Index < ChildMaxIndex) && ((gblNetwork.children[_myChild_available_Index].ChildAddress == 0xFFFF) || _isReplaceCommit))
       {
         gblNetwork.children[_myChild_available_Index].ChildAddress = _WHAT_Rx_Packet.sourceaddress;
         gblNetwork.children[_myChild_available_Index].LatchKeyValue = _Rx_Offered_Latchkey;  // STEP 1 (Nov 24, 2026): the 32-bit latchkey, parsed at +5..+8 above. (FIX history, Nov 24, 2026: the 16-bit value was once read at +4/+5, one field early.)
         gblNetwork.children[_myChild_available_Index].RelationshipType = _WHAT_Rx_Packet.payload[_index+9];  // STEP 1: the relation byte follows the 4-byte latchkey (+9). (Was +7 with the 2-byte latchkey.)
+        gblNetwork.childLastHeard[_myChild_available_Index] = millis();  // PROPOSED (Nov 25, 2026): the new (or replacement) child starts its liveness clock at the commit - it has a full lost interval to be heard from.
+        if (_isReplaceCommit)
+        { // PROPOSED (Nov 25, 2026): the lost record has been superseded - the address lives again under a fresh latchkey, and the replacement arming is spent.
+          #ifdef CHILD_MONITOR
+            Serial.print(F("Lost child replaced at slot: ")); Serial.println(_myChild_available_Index);
+          #endif
+          gblJoining.replaceOffer = false;
+          gblJoining.heardReplaceIntent = false;
+        }
         gblScratch.u16_1 = _WHAT_Rx_Packet.sourceaddress;  // Hand the accepted child's address to the WHAT_NEW_CHILD_OFFER state for the Birth Announcement.
         gblScratch.u32_1 = _Rx_Offered_Latchkey;           // Same hand-off for the latchkey (32-bit now, so a u32 scratch).
         gblScratch.u32_2 = _Rx_Confirm_Nonce;              // STEP 1: and the confirm nonce - the Birth Announcement's proof is computed over it.
@@ -2339,8 +2648,8 @@ void Rx_ACCEPT_PARENT_06(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)// 1 byte l
         _WHAT_Tx_Packet.destination = gblNetwork.children[_myChild_available_Index].ChildAddress;   // Send this to the child.
         _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
         uint8_t _index = 0;
-        _WHAT_Tx_Packet.payload[_index++] = 11; //Total payload length (including this byte)
-        _WHAT_Tx_Packet.payload[_index++] = 10; //MID size (for the 2nd message).
+        _WHAT_Tx_Packet.payload[_index++] = 10; //Total payload length (including this byte) - FIX (Nov 25, 2026, pre-approved by Gary): was 11 - see the broadcast copy in WHAT_NEW_CHILD_OFFER for the phantom-byte note.
+        _WHAT_Tx_Packet.payload[_index++] = 9; //MID size (for the 2nd message) - FIX (Nov 25, 2026): was 10, same phantom byte.
         _WHAT_Tx_Packet.payload[_index++] = highByte(NETWORK_JOIN_COMPLETE_03);// 1 byte length, 2 byte command, 2 byte child address, 4 byte proof // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
         _WHAT_Tx_Packet.payload[_index++] = lowByte(NETWORK_JOIN_COMPLETE_03); //in order to support multibyte MIDs, put the high byte first.
         _WHAT_Tx_Packet.payload[_index++] = highByte(_WHAT_Rx_Packet.sourceaddress);  // FIX (Nov 24, 2026): the child address and latchkey the format calls for were never sent, so the child's confirmation check could never pass.
@@ -2413,6 +2722,48 @@ void Rx_NETWORK_JOIN_COMPLETE_03(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 // TOC Individual Transmit messages
 void Tx_PROPOSE_CHILD_NUMBER_05 (void)
 {
+  // PROPOSED (Nov 25, 2026): a replacement offer short-circuits all the
+  // address math below. The address is not computed - it is the lost child's
+  // own address, read back out of the record it will supersede - and it needs
+  // no empty slot, because its slot is the lost record itself. The offer
+  // carries the replacement flag so the preemie can take it ahead of any
+  // ordinary offer. If the lost record has vanished since the offer was
+  // armed (freed by the child's own abandon in the meantime), the arming is dropped and the ordinary
+  // path below runs instead.
+  if (gblJoining.replaceOffer)
+  {
+    if ((gblJoining.replaceSlot >= 1) && (gblJoining.replaceSlot < ChildMaxIndex)
+        && (gblNetwork.children[gblJoining.replaceSlot].ChildAddress != 0xFFFF))
+    {
+      gblJoining.sourceAddress = gblNetwork.children[gblJoining.replaceSlot].ChildAddress;
+      WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+      _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+      _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+      _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
+      _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
+      uint8_t _index = 0;
+      _WHAT_Tx_Packet.payload[_index++] = 9; //Total payload length (including this byte)
+      _WHAT_Tx_Packet.payload[_index++] = 8;   //MID size (for the 2nd message).
+      _WHAT_Tx_Packet.payload[_index++] = highByte(PROPOSE_CHILD_NUMBER_05);
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(PROPOSE_CHILD_NUMBER_05); //in order to support multibyte MIDs, put the high byte first.
+      _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.sourceAddress);
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.sourceAddress);
+      _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.heardTempID);  // STEP 1 (Nov 24, 2026): temp ID echo - binds this offer to the preemie whose search was heard.
+      _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.heardTempID);
+      _WHAT_Tx_Packet.payload[_index++] = 1;  // PROPOSED (Nov 25, 2026): flags byte - 0x01 = replacement offer.
+      WHAT_TransmitPacket(_WHAT_Tx_Packet);
+
+      gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_PARENT_06;  // these are prospective parents offering free addresses.
+      gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_ACCEPT_PARENT_06; // Message callback set here to collect the responses
+      gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+      gblRxFlags.f_ACCEPT_PARENT_06 = false;   // Clear the message reception flag.
+      #ifdef CHILD_MONITOR
+        Serial.print(F("Tx Propose replacement child address: 0x")); Serial.println(gblJoining.sourceAddress,HEX);
+      #endif
+      return;
+    }
+    gblJoining.replaceOffer = false;  // The lost record is gone - fall through to an ordinary offer.
+  }
   // further MID will not be sent if this device does not have any available child slots.
   uint8_t _myChild_available_Index = 0;
   uint8_t _i = 1;
@@ -2460,6 +2811,28 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
           Serial.println(F("Path full and no next trunk - no child offer"));
         #endif
         return;
+      }
+      // PROPOSED (Nov 25, 2026) - Reading B table check (Gary's ruling): under
+      // the trunk reading, an address standing in my own child table is SPENT,
+      // however the air looks. The step-4 trial re-run exposed the defect this
+      // fixes: 0x0111's table still held its 0x1000 child (no ABANDON had
+      // released it), the claim check asked the AIR - where the only holder
+      // was the searching preemie itself - heard silence, and re-minted
+      // 0x1000 into a second slot. My own records are the first and cheapest
+      // evidence, so they are consulted before permanence and before the air:
+      // table-spent means no offer and no claim check. A verified ABANDON
+      // frees the record outright and a replacement supersedes it - those
+      // are the only two ways an address is ever released - and only then
+      // can the address be offered again.
+      for (uint8_t _s = 1; _s < ChildMaxIndex; _s++)
+      {
+        if (gblNetwork.children[_s].ChildAddress == _trunkCandidate)
+        {
+          #ifdef CHILD_MONITOR
+            Serial.print(F("Trunk address already in my table - not offered: 0x")); Serial.println(_trunkCandidate,HEX);
+          #endif
+          return;
+        }
       }
       #ifndef WHAT_PERMANENT
         #ifdef CHILD_MONITOR
@@ -2515,14 +2888,15 @@ void Tx_PROPOSE_CHILD_NUMBER_05 (void)
       _WHAT_Tx_Packet.destination = 0xFFFF;   // Send this to all devices.
       _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
       uint8_t _index = 0;
-      _WHAT_Tx_Packet.payload[_index++] = 8; //include the length of the proposed child address.
-      _WHAT_Tx_Packet.payload[_index++] = 7;   //MID size (for the 2nd message).
+      _WHAT_Tx_Packet.payload[_index++] = 9; //include the length of the proposed child address. - PROPOSED (Nov 25, 2026): was 8 before the flags byte was appended.
+      _WHAT_Tx_Packet.payload[_index++] = 8;   //MID size (for the 2nd message). - PROPOSED (Nov 25, 2026): was 7.
       _WHAT_Tx_Packet.payload[_index++] = highByte(PROPOSE_CHILD_NUMBER_05);// 1 byte length, 2 byte command, 2 byte child address, 2 byte latchkey // Any device that has open child slots replies to request (REQUEST_JOIN_NETWORK_02).
       _WHAT_Tx_Packet.payload[_index++] = lowByte(PROPOSE_CHILD_NUMBER_05); //in order to support multibyte MIDs, put the high byte first.
       _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.sourceAddress);//in order to support multibyte MIDs, put the high byte first.
       _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.sourceAddress);
       _WHAT_Tx_Packet.payload[_index++] = highByte(gblJoining.heardTempID);  // STEP 1 (Nov 24, 2026): temp ID echo - binds this offer to the preemie whose search was heard.
       _WHAT_Tx_Packet.payload[_index++] = lowByte(gblJoining.heardTempID);
+      _WHAT_Tx_Packet.payload[_index++] = 0;  // PROPOSED (Nov 25, 2026): flags byte - 0x00 = ordinary offer (the replacement build above sends 0x01). Appended at the end, so older builds reading the address and temp ID at their fixed offsets are unaffected.
       WHAT_TransmitPacket(_WHAT_Tx_Packet);
 
       gblRegistry.message[gblRegistry.reusableSlot].MessageID = ACCEPT_PARENT_06;  // these are prospective parents offering free addresses.
@@ -2559,6 +2933,29 @@ void Rx_ABANDON_CHILD_05 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
             gblNetwork.children[_i].LatchKeyValue = 0xFFFFFFFF;
             gblNetwork.children[_i].RelationshipType = 0;
             gblNetwork.children[_i].Security = 0xFFFF;
+            // PROPOSED (Nov 25, 2026): two completions this handler always
+            // owed. (1) SAVE the release - the blanking used to be RAM-only,
+            // so a power cycle resurrected the released child from EEPROM and
+            // its address stayed spent forever. (2) CONFIRM it - the leaver
+            // is waiting (bounded retries) to hear that its release is
+            // durable before it wipes itself.
+            WHAT_StoreEEPROM();
+            {
+              WHAT_Packet _WHAT_Tx_Packet;  // Make a temporary transmit packet
+              _WHAT_Tx_Packet.WHAT_MAC_MESSAGE;
+              _WHAT_Tx_Packet.pan_id = gblNetwork.panID;
+              _WHAT_Tx_Packet.destination = _WHAT_Rx_Packet.sourceaddress;   // Send this to the leaving child.
+              _WHAT_Tx_Packet.sourceaddress = mySourceAddress;  // Use the source address of this device.
+              uint8_t _confirmIndex = 0;
+              _WHAT_Tx_Packet.payload[_confirmIndex++] = 4; //Total payload length (including this byte)
+              _WHAT_Tx_Packet.payload[_confirmIndex++] = 3; //MID length (including this byte)
+              _WHAT_Tx_Packet.payload[_confirmIndex++] = highByte(REPLY_ABANDON_CONFIRM_03);
+              _WHAT_Tx_Packet.payload[_confirmIndex++] = lowByte(REPLY_ABANDON_CONFIRM_03);
+              WHAT_TransmitPacket(_WHAT_Tx_Packet);
+            }
+            #ifdef CHILD_MONITOR
+              Serial.println(F("Child released and confirmed"));
+            #endif
         }//End Child removed
         else
         {// Security breach... incorrect proof value.  Note the security breach (not yet implimented)
