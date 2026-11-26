@@ -1,4 +1,4 @@
-#define WHAT_REMOTECONTROL_VERSION 26112405   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTECONTROL_VERSION 26112601   // Revision: YYMMDD## - bump ## on any change to this file.
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D to match the Nov 24, 2026 base EEPROM layout - 32-bit latchkeys.)
 
@@ -94,6 +94,7 @@ const char WHAT_abilities[] PROGMEM  = {"3xAI, 3xDI, 3xDO, 1xRGB, 0xLED, 3xFET_L
   #define b_RED_RGB_PIN 5   // Remote zigbee hardware
   #define b_GREEN_RGB_PIN 4
   #define b_BLUE_RGB_PIN 3
+  #define WHITE_RED_PERCENT 12   // White balance for WHAT_LIGHT_WHITE (added with the adopted base, Nov 26, 2026 - same value as WHAT_Remote): the red die runs much brighter than green/blue at the same drive, so full-on red makes "white" read as red. 12% produces the same 225 PWM value as Ben's Arduino calibration (red scaled to 30/255). Green/blue stay full.
   // ************* AtoD Calibration *******************************
  // #define MAX_A2D_VOLTS 0.833 // Call getSupplyVoltage routine to calculate this! 
   #define MAX_A2D_COUNTS 175.0
@@ -401,6 +402,13 @@ void Loop_Network_Button_Light(void)    // checks the RAW button reserved for ne
         digitalWrite(b_GREEN_RGB_PIN,HIGH); 
         digitalWrite(b_BLUE_RGB_PIN,LOW);
         // Show_btn_NETWORK(/*Color of the button*/ILI9341_DARK_RED, /*Color of the text*/ILI9341_BLACK, /*line1 Text*/ "Network",/*line2 Text*/ "PENDING");
+        break;
+
+    case WHAT_LIGHT_WHITE:
+        analogWrite(b_RED_RGB_PIN, 255 - ((WHITE_RED_PERCENT * 255) / 100));  //Light White - red dimmed to WHITE_RED_PERCENT (active LOW: the PWM value is the OFF fraction). The other cases use digitalWrite on this pin, which cancels the PWM again.
+        digitalWrite(b_GREEN_RGB_PIN,LOW); 
+        digitalWrite(b_BLUE_RGB_PIN,LOW);
+        // Adopted base (Nov 26, 2026): a preemie searching as a replacement shows steady WHITE.
         break;
          
      default:
