@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112503
+#define WHAT_NETWORK_VERSION 26112504
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -1801,7 +1801,7 @@ void WHAT_StateCheck(void)
               gblJoining.replaceOfferReceived = false; // PROPOSED (Nov 25, 2026): a fresh collection round - no replacement offer taken yet.
               gblRegistry.message[gblRegistry.reusableSlot].MessageID = NETWORK_ALLOW_PREEMIE_04;  // these are prospective parents offering free addresses.
               gblRegistry.message[gblRegistry.reusableSlot].callback = &Rx_NETWORK_ALLOW_PREEMIE_04; // Message callback set here to collect the responses
-             gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
+             gblMailbox.networkStateColor = gblJoining.replaceIntent ? WHAT_LIGHT_WHITE : WHAT_LIGHT_OFF;  // PROPOSED FIX (Nov 26, 2026): keep the replacement WHITE unbroken through this entry pass too.
              #ifdef CHILD_MONITOR
                 Serial.print(F("gblRegistry.reusableSlot: ")); Serial.println(gblRegistry.reusableSlot);
                 //Serial.print(F("Response Timeout : ")); Serial.println(millis());
@@ -1855,8 +1855,22 @@ void WHAT_StateCheck(void)
                 // TOC Handle Light color based on network status
                 // This node is joining an existing network.
                 // blue/green alternation is the indication.
+                // PROPOSED FIX (Nov 26, 2026): a replacement-intent preemie
+                // spends this whole wait here, not in the search state - the
+                // green/blue alternation repainted the lamp every pass and
+                // the steady WHITE set in the search state never survived
+                // long enough to be seen (bench, Nov 26, 2026). Hold WHITE
+                // through the wait as well; the join states take the lamp
+                // back over once an offer is actually accepted.
 
-       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_BLUE,/*Light Color 2 time*/ 100 );
+       if (gblJoining.replaceIntent)
+       {
+         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_WHITE,/*Light Color 2 time*/ 50 );
+       }
+       else
+       {
+         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_BLUE,/*Light Color 2 time*/ 100 );
+       }
 
       }// break;
         
