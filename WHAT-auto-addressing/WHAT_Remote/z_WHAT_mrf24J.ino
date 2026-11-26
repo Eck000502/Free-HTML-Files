@@ -1,4 +1,4 @@
-#define WHAT_MRF24J_INO_VERSION 26112401   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_MRF24J_INO_VERSION 26112501   // Revision: YYMMDD## - bump ## on any change to this file.
 
 // ***************************
 // TableOfContents:
@@ -346,25 +346,25 @@ void Tx_What_Que(void)  // If more that one message is being send, this will sen
       Mrf24j_Write(MRF24J_TxN_SOURCEH, highByte(gblQueues.tx[gblQueues.txSentIndex].sourceaddress));
     
       /*
-        Serial.print("Header Length (TX Buf 0): ");Serial.println(Mrf24j_Read(MRF24J_TxNHeadLength),HEX);
-        Serial.print("\tPacket Length (TX Buf 1): ");Serial.println(Mrf24j_Read(MRF24J_TxNFrameLength),HEX);
-        Serial.print("\tFrame Control Low byte (TX Buf 2): ");Serial.println(Mrf24j_Read(MRF24J_TxNFrmCntrl),HEX);
-        Serial.print("\tFrame Control High byte (TX Buf 3): ");Serial.println(Mrf24j_Read(MRF24J_TxNFrmCntrl2),HEX);
-        Serial.print("\tSequence number (TX Buf 4): ");Serial.println(Mrf24j_Read(MRF24J_TxNSeq),HEX);
-        Serial.print("\tPANID (TX Buf 5,6): ");Serial.print(Mrf24j_Read(MRF24J_TxN_PANIDH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_PANIDL),HEX);
-        Serial.print("\tDestination (TX Buf 7,8): ");Serial.print(Mrf24j_Read(MRF24J_TxN_DESTH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_DESTL),HEX);
-        Serial.print("\tSource (TX Buf 9/A): ");Serial.print(Mrf24j_Read(MRF24J_TxN_SOURCEH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_SOURCEL),HEX);
-        Serial.print("\t\tPayloadSize (TX Buf B): ");Serial.println(Mrf24j_Read(MRF24J_TxN_PAYLOADSTART),HEX);
-        Serial.print("\t\tPayloadByte1 (TX Buf C): ");Serial.println(Mrf24j_Read(MRF24J_TxN_PAYLOADSTART+1),HEX);
+        Serial.print(F("Header Length (TX Buf 0): "));Serial.println(Mrf24j_Read(MRF24J_TxNHeadLength),HEX);
+        Serial.print(F("\tPacket Length (TX Buf 1): "));Serial.println(Mrf24j_Read(MRF24J_TxNFrameLength),HEX);
+        Serial.print(F("\tFrame Control Low byte (TX Buf 2): "));Serial.println(Mrf24j_Read(MRF24J_TxNFrmCntrl),HEX);
+        Serial.print(F("\tFrame Control High byte (TX Buf 3): "));Serial.println(Mrf24j_Read(MRF24J_TxNFrmCntrl2),HEX);
+        Serial.print(F("\tSequence number (TX Buf 4): "));Serial.println(Mrf24j_Read(MRF24J_TxNSeq),HEX);
+        Serial.print(F("\tPANID (TX Buf 5,6): "));Serial.print(Mrf24j_Read(MRF24J_TxN_PANIDH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_PANIDL),HEX);
+        Serial.print(F("\tDestination (TX Buf 7,8): "));Serial.print(Mrf24j_Read(MRF24J_TxN_DESTH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_DESTL),HEX);
+        Serial.print(F("\tSource (TX Buf 9/A): "));Serial.print(Mrf24j_Read(MRF24J_TxN_SOURCEH),HEX);Serial.println(Mrf24j_Read(MRF24J_TxN_SOURCEL),HEX);
+        Serial.print(F("\t\tPayloadSize (TX Buf B): "));Serial.println(Mrf24j_Read(MRF24J_TxN_PAYLOADSTART),HEX);
+        Serial.print(F("\t\tPayloadByte1 (TX Buf C): "));Serial.println(Mrf24j_Read(MRF24J_TxN_PAYLOADSTART+1),HEX);
     
     
-        Serial.print("\n");
-        Serial.print("Header Length (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].header_length,HEX);
-        Serial.print("\tPacket Length (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].frame_length,HEX);
-        Serial.print("\tFrame Control (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].frame_control,HEX);
-        Serial.print("\tDestination (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].destination,HEX);
-        Serial.print("\tPANID (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].pan_id,HEX);
-        Serial.print("\tSource (Packet): ");Serial.println(gblQueues.tx[gblQueues.txSentIndex].sourceaddress,HEX);
+        Serial.print(F("\n"));
+        Serial.print(F("Header Length (Packet): "));Serial.println(gblQueues.tx[gblQueues.txSentIndex].header_length,HEX);
+        Serial.print(F("\tPacket Length (Packet): "));Serial.println(gblQueues.tx[gblQueues.txSentIndex].frame_length,HEX);
+        Serial.print(F("\tFrame Control (Packet): "));Serial.println(gblQueues.tx[gblQueues.txSentIndex].frame_control,HEX);
+        Serial.print(F("\tDestination (Packet): "));Serial.println(gblQueues.tx[gblQueues.txSentIndex].destination,HEX);
+        Serial.print(F("\tPANID (Packet): "));Serial.println(gblQueues.tx[gblQueues.txSentIndex].pan_id,HEX);
+        Serial.print(F("\tSource (Packet): "));Serial.println(gblQueues.tx[gblQueues.txSentIndex].sourceaddress,HEX);
       */
       // Now load the payload:
       uint8_t _payloadSize = gblQueues.tx[gblQueues.txSentIndex].payload[0];  //User must supply payload length in the first byte of the array.
@@ -379,7 +379,7 @@ void Tx_What_Que(void)  // If more that one message is being send, this will sen
       //Serial.println(Mrf24j_Read(MRF24J_TXSTAT),BIN);
       gblQueues.txSentIndex++; if(gblQueues.txSentIndex >= TX_BUFFER_DEPTH) gblQueues.txSentIndex=0;  // FIX (Nov 24, 2026): was '>' - the sent index could step to 3, one past the end of the 3-packet queue, and Tx_What_Que then transmitted out-of-bounds memory as a packet (the 'Tx 0' phantom send). The queue-add side already wrapped with '>='.
       #ifdef TX_MONITOR
-      Serial.print("Tx ");Serial.println(gblQueues.txSentIndex);
+      Serial.print(F("Tx "));Serial.println(gblQueues.txSentIndex);
       #endif
     }
   }
