@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112701
+#define WHAT_NETWORK_VERSION 26112702
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -415,7 +415,7 @@ void WHAT_begin(void)
  
    // Trying to make these as re-usable messages.
   //RegisterWHATMessage (NETWORK_ALERT_PREEMIE_03, &Rx_NETWORK_ALERT_PREEMIE_03); // This is an entry that will not change.
-  //RegisterWHATMessage (NETWORK_ALLOW_PREEMIE_04, &Rx_NETWORK_ALLOW_PREEMIE_04); // This is an entry that will not change.
+  RegisterWHATMessage (NETWORK_ALLOW_PREEMIE_04, &Rx_NETWORK_ALLOW_PREEMIE_04); // This is an entry that will not change. (FIX, Nov 27, 2026: registered permanently - a MEMBER must hear another member's allow so it can offer a child too (Gary's design: any member offers when any member's button is pressed; the preemie chooses the lowest address). It used to be reachable only through the reusable slot a waiting preemie parks, so members never heard it and only the pressed unit could offer.)
   gblRegistry.reusableSlot = RegisterWHATMessage (0xFFFF, &holdingFunction); // This entry can be re-used during network adoption.
       #ifdef RX_MONITOR
       Serial.print(F("gblRegistry.reusableSlot :"));Serial.println(gblRegistry.reusableSlot);
@@ -1917,10 +1917,10 @@ void WHAT_StateCheck(void)
                 {
                   gblRxFlags.f_NETWORK_JOIN_ABORT_03 = false; // clear the message flag when it is used.
                   //gblMailbox.networkState = WHAT_PRE_REQUEST_JOIN_NETWORK_03; // If nothing offered a child slot, return to being a preemie.
+                  gblMailbox.networkState = WHAT_PRE_NETWORK_ERROR; //Give the lamp color/text that indicates that the connection was aborted. (FIX, Nov 27, 2026: moved out of the #ifdef CHILD_MONITOR below - a state change must not depend on a monitor switch; same defect species as the FullLink REJECT fix. The print stays gated.)
                 #ifdef CHILD_MONITOR
                   //Serial.print(F("Offered PANID:0x")); Serial.println(gblJoining.panID);
                   Serial.println(F("gblRxFlags.f_NETWORK_JOIN_ABORT_03")); 
-                  gblMailbox.networkState = WHAT_PRE_NETWORK_ERROR; //Give the lamp color/text that indicates that the connection was aborted.
                 #endif
                 }
                 // TOC Handle Light color based on network status
@@ -2633,14 +2633,30 @@ void Rx_NETWORK_ALERT_PREEMIE_03 (WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 void Rx_NETWORK_ALLOW_PREEMIE_04(WHAT_Packet _WHAT_Rx_Packet, uint8_t _index)
 {
 // Rx Message flags
-  // STEP 1 (Nov 24, 2026): the allow must echo THIS preemie's temp ID (the
-  // confirm byte is at _index + 3, the temp ID at _index + 4 / + 5). An allow
-  // for a different attempt - another preemie's join, or a spoof - is ignored.
-  if (((_WHAT_Rx_Packet.payload[_index + 4] * 0x100) + _WHAT_Rx_Packet.payload[_index + 5]) != gblJoining.tempID)
-  {
-    return;
+  // STEP 1 (Nov 24, 2026): the allow must echo the temp ID of the join
+  // attempt it belongs to (the confirm byte is at _index + 3, the temp ID
+  // at _index + 4 / + 5). An allow for a different attempt - another
+  // preemie's join, or a spoof - is ignored.
+  // FIX (Nov 27, 2026, Gary's design): the echo is checked against the
+  // attempt THIS device takes part in, by role. A preemie checks its OWN
+  // temp ID (gblJoining.tempID). A member checks the temp ID of the search
+  // it HEARD (gblJoining.heardTempID) - members hear allows now (the
+  // message is registered permanently in WHAT_begin), so any member with
+  // an open slot offers when any member's button is pressed, and the
+  // preemie chooses among the offers. Before this fix, only the pressed
+  // unit could ever offer: the message was never registered on a member,
+  // and this check compared against the member's own stale temp ID.
+  uint16_t _allowTempID = ((_WHAT_Rx_Packet.payload[_index + 4] * 0x100) + _WHAT_Rx_Packet.payload[_index + 5]);
+  if (mySourceAddress >= 0xFFFF)
+  { // Preemie: the allow must be for MY attempt, and it names my network.
+    if (_allowTempID != gblJoining.tempID) { return; }
+    gblJoining.panID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
   }
-  gblJoining.panID = _WHAT_Rx_Packet.pan_id;  //Only accepting PANID from the PANID that sent the allowance indication.
+  else
+  { // Member: the allow must belong to the search I heard. Which network
+    // is not in question - it is mine - so gblJoining.panID stays untouched.
+    if (_allowTempID != gblJoining.heardTempID) { return; }
+  }
   gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04 = true;       // While a new network is forming, requests existing network to claim its PANID
     #ifdef CHILD_MONITOR
     Serial.print(F("Recieve acceptance of child from :0x")); Serial.println(_WHAT_Rx_Packet.sourceaddress);
