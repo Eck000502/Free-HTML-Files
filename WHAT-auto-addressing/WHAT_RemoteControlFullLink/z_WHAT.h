@@ -1,7 +1,7 @@
 
 #ifndef __WHAT_h
 #define __WHAT_h
-#define WHAT_SOFTWARE_VERSION 26112701
+#define WHAT_SOFTWARE_VERSION 26112702
 // This revision requires library to set BBREG2 or it will not work. 
 
 //#include "z_WHAT.h"  // Wireless zigbee communications.
@@ -213,8 +213,7 @@ struct WHAT_Joining
   uint32_t latchkey = 0xFFFFFFFF; // Latchkey offered by the parent with the lowest offered address. (32-bit since STEP 1, Nov 24, 2026.)
   uint16_t tempID = 0xFFFF;       // STEP 1 (Nov 24, 2026): random per-attempt ID binding one join attempt - on a preemie, MY id, generated when a search begins, echoed back to me in the allow / offers / accept.
   uint16_t heardTempID = 0xFFFF;  // STEP 1 TIEBREAK (Nov 24, 2026): the temp ID of the preemie whose search (or alert) was last heard. Members echo THIS in their alert / allow / propose and check it against the accept; a searching preemie compares it against its own tempID to decide which of them founds a network.
-  uint16_t joinCooldownTempID = 0xFFFF;  // JOIN COOLDOWN (Nov 27, 2026, Gary): the join attempt (temp ID) this member is cooling down from - armed when a join engagement ends with no join (see z_WHAT.ino WHAT_NET_ALIVE gate).
-  uint32_t joinCooldownUntil = 0;        // JOIN COOLDOWN (Nov 27, 2026): millis() deadline of the cooldown, 0 = none. While it runs, WHAT_NET_ALIVE ignores that attempt's searches so the lamps rest between failed attempts; a button press or a heard allow clears it at once.
+  uint32_t joinCooldownUntil = 0;        // JOIN COOLDOWN (Nov 27, 2026, Gary): millis() deadline of the post-attempt quiet window, 0 = none. Armed when a join engagement ends with no join; while it runs, WHAT_NET_ALIVE ignores preemie searches so the lamps rest between failed attempts; a button press or a heard allow clears it at once. Deliberately UNKEYED: v1 keyed the window to the attempt's temp ID, but a preemie draws a fresh temp ID on every return to searching (WHAT_PRE_PREEMIE_NETWORK_SEARCH), so the key could never match the next cycle - the bench (Nov 27, 2026) showed instant re-engagement.
   uint32_t confirmNonce = 0;      // STEP 1 (Nov 24, 2026): preemie-side only - the nonce sent in ACCEPT_PARENT_06, against which the parent's NETWORK_JOIN_COMPLETE_03 proof is checked.
   uint16_t trunkCandidate = 0xFFFF; // PROPOSED (Nov 25, 2026): member-side - the trunk address being claim-checked / offered in this join attempt (0xFFFF = none).
   uint16_t ackSourceAddress = 0xFFFF; // PROPOSED (Nov 25, 2026): source address of the most recent REPLY_ACKNOWLEDGE_03. (Founding ignores it; the trunk claim check matches it against trunkCandidate.)
