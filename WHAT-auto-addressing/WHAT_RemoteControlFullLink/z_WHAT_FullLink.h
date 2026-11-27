@@ -1,6 +1,6 @@
 #ifndef __WHAT_FULLLINK_h
 #define __WHAT_FULLLINK_h
-#define WHAT_FULLLINK_VERSION 26112704
+#define WHAT_FULLLINK_VERSION 26112705
 
 /*
 #include "z_WHAT_FullLink.h"   // -This routine- as part of the WHAT system.
@@ -167,6 +167,7 @@ struct WHAT_Link
   uint8_t  replyChannel = 0xFF;
   uint8_t  replyFlags = 0xFF;
   uint8_t reusableSlot = 0xFF;   // Registered once, then the callback can be changed. (was gblLink.reusableSlot)
+  uint32_t linkTimer = 0;   // The link machine's PRIVATE deadline timer (FIX, Nov 27, 2026). Every link state deadline lives here - NOT in gblScratch.timer1, which the network machine owns: a member's short button press (the join allow) used to arm the link layer's 5 s hold watch on that shared scratch and silently collapse the network machine's 60 s child-offer window to ~5 s, so a joining child's ACCEPT arrived after the parent had stopped listening for it (third-unit bench failure, Nov 27, 2026).
 };
 WHAT_Link gblLink;
 //bool * _network_button = &WHAT_NetworkButton;     // This will mirror the button styate in the main program.
