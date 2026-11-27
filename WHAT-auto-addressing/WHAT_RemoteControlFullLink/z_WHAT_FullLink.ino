@@ -1,4 +1,4 @@
-#define WHAT_FULLLINK_INO_VERSION 26112705   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_FULLLINK_INO_VERSION 26112706   // Revision: YYMMDD## - bump ## on any change to this file.
 
 #include "z_WHAT_FullLink.h"   // -This routine- as part of the WHAT system.
 
@@ -607,6 +607,12 @@ void WHAT_LinkDispatch(void)
 }
 
 // TOC Link operations
+// FIX (Nov 27, 2026): every deadline in this state machine runs on
+// gblLink.linkTimer, the link layer's own timer - never on
+// gblScratch.timer1. The bench failure this fixes had this machine's
+// idle button-watch overwrite the network machine's child-offer
+// deadline (see the linkTimer field in z_WHAT_FullLink.h), which
+// dropped a joining child's ACCEPT on the floor.
 void WHAT_LinkCheck(void)
 {
 
@@ -624,7 +630,7 @@ void WHAT_LinkCheck(void)
           // table, not a peer slot, is what a new link consumes.)
           if(WHAT_LinkFirstBlankEntry() != 0xFF)
           { //only move to the next phase if a link entry is available.
-            gblScratch.timer1 = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
+            gblLink.linkTimer = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
            gblLink.state = WHAT_PRE_LINKING_INITIATED;  // This device is initiating a link
           }
           else
@@ -639,7 +645,7 @@ void WHAT_LinkCheck(void)
         if(WHAT_LinkFirstBlankEntry() != 0xFF)
         {
           gblLinkRxFlags.f_REQUEST_FULL_LINK_03 = false; // Mark the reception flag as used so it is not duplicated.
-          gblScratch.timer1 = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
+          gblLink.linkTimer = millis() + _WHAT_NEW_LINK_HELD_TIME_DELAY; // Network button must be held for a while before acting on the link.
           gblLink.state = WHAT_PRE_LINK_REQUESTED;
           #ifdef LINK_MONITOR
            Serial.print(F("gblMailbox.networkState: WHAT_PRE_LINK_REQUESTED ")); Serial.println(gblMailbox.networkState);
@@ -683,7 +689,7 @@ void WHAT_LinkCheck(void)
           { // Button is still held.
             _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 200,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 200 );
 
-            if(gblScratch.timer1 <= millis())
+            if(gblLink.linkTimer <= millis())
             { // Network button was held long enough.
               // FULL LINK IMPLEMENTATION (Nov 26, 2026): the ACCEPT / REJECT
               // handlers are registered permanently in WHAT_LINK_begin() -
@@ -696,7 +702,7 @@ void WHAT_LinkCheck(void)
               #ifdef LINK_MONITOR
                   Serial.println(F("Tx Rqst Link"));
               #endif
-              gblScratch.timer1 = millis() + _WHAT_NEW_Link_TIME_DELAY;
+              gblLink.linkTimer = millis() + _WHAT_NEW_Link_TIME_DELAY;
               gblLink.state = WHAT_LINKING_INITIATED;
 
             }
@@ -728,18 +734,18 @@ void WHAT_LinkCheck(void)
           Serial.println(F("Link removed by peer while waiting"));
         #endif
         gblMailbox.networkStateColor = WHAT_LIGHT_RED;
-        gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it RED for several seconds.
+        gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it RED for several seconds.
         gblLink.state = WHAT_LINK_COMPLETED;
       }
 
-      if(gblScratch.timer1 < millis())
+      if(gblLink.linkTimer < millis())
         {
           #ifdef LINK_MONITOR
           Serial.println(F("Link to me -timeout-"));
           Serial.println(F("Tx_REJECT_FULL_LINK_03"));
         #endif
           Tx_REJECT_FULL_LINK_03();   // Let other devices know the link was rejected.
-           gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it red for several seconds.
+           gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it red for several seconds.
            gblMailbox.networkStateColor = WHAT_LIGHT_RED;
            gblLink.state = WHAT_LINK_COMPLETED; // no response.  indicate that the link was not accepted.
         }
@@ -767,7 +773,7 @@ void WHAT_LinkCheck(void)
             Serial.println(F("Link to me -Removed-"));
           #endif
           gblMailbox.networkStateColor = WHAT_LIGHT_RED;
-          gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it RED for several seconds.
+          gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it RED for several seconds.
           gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.
         }
         else if(WHAT_LinkFillFromPeer(gblJoining.sourceAddress))
@@ -776,7 +782,7 @@ void WHAT_LinkCheck(void)
             Serial.println(F("Link to me -Accepted-"));
           #endif
           gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
-          gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+          gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
           gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.
         }
         else
@@ -785,7 +791,7 @@ void WHAT_LinkCheck(void)
             #ifdef LINK_MONITOR
               Serial.println(F("No Link entries available suddenly"));
             #endif
-            gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+            gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
             gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.
 
         }
@@ -802,7 +808,7 @@ void WHAT_LinkCheck(void)
         // (Nov 27, 2026: "already linked to this requester" = any entry names it.)
         if(WHAT_LinkPeerLinked(gblJoining.sourceAddress))
         {
-          gblScratch.timer1 = millis() + _RQST_WAIT_TIME;
+          gblLink.linkTimer = millis() + _RQST_WAIT_TIME;
           gblLink.state = WHAT_REMOVE_LINK; //Prepare to remove link
         }
         else
@@ -838,7 +844,7 @@ void WHAT_LinkCheck(void)
            Serial.print(F("Link Accepted to : 0x"));Serial.println(gblJoining.sourceAddress,HEX);
       #endif
         gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
-        gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+        gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
         gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.
 
       }
@@ -851,7 +857,7 @@ void WHAT_LinkCheck(void)
         gblLink.state =  WHAT_NO_LINK; // Reset to the "normal" state. (Nov 27, 2026: this line sat inside the LINK_MONITOR ifdef since the draft - with the monitor off, a REJECT never reset the state and only the timer below saved it.)
       }
 
-      if(gblScratch.timer1 <= millis())
+      if(gblLink.linkTimer <= millis())
       {
       #ifdef LINK_MONITOR
        Serial.println(F("Link to me -timeout-"));
@@ -866,7 +872,7 @@ void WHAT_LinkCheck(void)
       {
         WHAT_LinkClearPeer(gblJoining.sourceAddress); // Blank every entry naming this peer (persists inside).
         gblMailbox.networkStateColor = WHAT_LIGHT_RED;
-        gblScratch.timer1 = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
+        gblLink.linkTimer = millis() + _RQST_WAIT_TIME; // Keep it green for several seconds.
         gblLink.state = WHAT_LINK_COMPLETED; // no response.  act like it never happened.
         #ifdef LINK_MONITOR
         Serial.print(F("Unlink :0x"));Serial.println(gblJoining.sourceAddress,HEX);
@@ -884,7 +890,7 @@ void WHAT_LinkCheck(void)
         _WHAT_Tx_Packet.payload[_index++] = lowByte(REMOVE_FULL_LINK_03);
           WHAT_TransmitPacket(_WHAT_Tx_Packet);
       }
-      if(gblScratch.timer1 <= millis())
+      if(gblLink.linkTimer <= millis())
       {
         #ifdef LINK_MONITOR
         Serial.println(F("REMOVE link -timeout-"));
@@ -894,7 +900,7 @@ void WHAT_LinkCheck(void)
     break;
 
     case  WHAT_LINK_COMPLETED:
-        if (gblScratch.timer1 <= millis())  // FULL LINK IMPLEMENTATION (Nov 26, 2026): was timer2 - but every path INTO this state sets timer1, so the hold ran on a stale timer2 and could end instantly or hang. timer1 is the one that was set.
+        if (gblLink.linkTimer <= millis())  // FULL LINK IMPLEMENTATION (Nov 26, 2026): was timer2 - but every path INTO this state sets timer1, so the hold ran on a stale timer2 and could end instantly or hang. timer1 is the one that was set.
         {  // The result color has been shown long enough.
           gblMailbox.networkStateColor = WHAT_LIGHT_OFF;
         #ifdef LINK_MONITOR
