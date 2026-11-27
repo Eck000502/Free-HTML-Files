@@ -1,4 +1,4 @@
-#define WHAT_REMOTECONTROL_VERSION 26112601   // Revision: YYMMDD## - bump ## on any change to this file.
+#define WHAT_REMOTECONTROL_VERSION 26112602   // Revision: YYMMDD## - bump ## on any change to this file.
 
 #define USED_EEPROM_VALUE 0x7D   // This value is stored in EEPROM_USED_FLAG_LOCATION to show this is not a fresh installation. (0x7D to match the Nov 24, 2026 base EEPROM layout - 32-bit latchkeys.)
 
@@ -12,7 +12,7 @@
 // old fixed peer link; on a bigger network, every member hears and decides.
 #define TRANSMIT_DELAY 500
 
-#define SOFTWARE_PWM_PERIOD_MS 100  // Software PWM cycle length for the FET outputs (see setFetOutputs). 100 ms = 10 Hz, and 1 ms of on-time per 1% of commanded duty.
+#define PWM_TICKS_PER_CYCLE 100  // Interrupt PWM (Nov 26, 2026): the Timer2 ISR ticks every 25 us; 100 ticks = one 2.5 ms cycle = 400 Hz, and 1 tick = 1% of duty. (Replaces SOFTWARE_PWM_PERIOD_MS - the old loop-driven software PWM ran at 100 ms / 10 Hz.)
 
 #define SIMULATED_INPUTS  // TEST (Nov 24, 2026, Gary's request): simulate the analog inputs instead of reading the potentiometers on A3-A5 - the simulated value steps 0% to 100% in 10% steps every 5 seconds. Mutually exclusive with Loop_ReadInputs: only one of the two runs (see loop()), and both write the same analog_in1/2/3 variables, so simulated values are transmitted exactly like real ones. Comment this line out to return to the real inputs.
 
@@ -106,13 +106,13 @@ const char WHAT_abilities[] PROGMEM  = {"3xAI, 3xDI, 3xDO, 1xRGB, 0xLED, 3xFET_L
   bool b_o_FET1 = LOW;   // Externally controlled.
   bool b_o_FET2 = LOW;   // Externally controlled.
   bool b_o_FET3 = LOW;   // Externally controlled.
-  uint8_t PWM_OUT_1 = 0;    // Externally controlled.
-  uint8_t PWM_OUT_2 = 0;    // Externally controlled.
-  uint8_t PWM_OUT_3 = 0;   // Externally controlled.
+  volatile uint8_t PWM_OUT_1 = 0;    // Externally controlled. (volatile: read by the PWM timer ISR.)
+  volatile uint8_t PWM_OUT_2 = 0;    // Externally controlled. (volatile: read by the PWM timer ISR.)
+  volatile uint8_t PWM_OUT_3 = 0;   // Externally controlled. (volatile: read by the PWM timer ISR.)
 
   #define PWM_OUTPUTS 1
   #define DIGITAL_OUTPUTS 0
-  bool analog_control = DIGITAL_OUTPUTS; //  Default the output operation to DIGITAL outputs.
+  volatile bool analog_control = DIGITAL_OUTPUTS; //  Default the output operation to DIGITAL outputs. (volatile: read by the PWM timer ISR.)
 
   //    / ************    Setup for Temperature Sensor ****************** /
   //#define TMPTR_MAX_A2D_VOLTS 3.18    // Call getSupplyVoltage routine to calculate this!  // Teensy4.0 values
@@ -176,6 +176,7 @@ void setup() {
 
   Setup_remoteControl();
 
+  Setup_PWMInterrupt();  // INTERRUPT PWM (Nov 26, 2026): arm the 400 Hz Timer2 PWM for the FET outputs.
 
 }
 
@@ -193,12 +194,10 @@ void loop() {
 #else
   Loop_ReadInputs();
 #endif
-  if(analog_control == PWM_OUTPUTS)
-  { // FIXED: only drive the outputs from PWM_OUT_x while in PWM mode.
-    // In DIGITAL mode the Rx_CMD_DIG01_04_FET handler writes the FET pins directly,
-    // and calling setFetOutputs here every loop would immediately override it.
-    setFetOutputs(PWM_OUT_1,PWM_OUT_2,PWM_OUT_3 );
-  }
+  // INTERRUPT PWM (Nov 26, 2026): in PWM mode the Timer2 ISR drives the FET
+  // outputs from PWM_OUT_1/2/3, so the loop has nothing to do here. In DIGITAL
+  // mode the Rx_CMD_DIG01_04_FET handler writes the FET pins directly and the
+  // ISR stands down. (The loop-driven setFetOutputs() call used to live here.)
 
   Loop_SendData();
   // If this device will allow "full links... "
@@ -556,37 +555,54 @@ void Loop_ReadInputs(void)
 }
 // ***************
 
-/*
+// *********************************************************************
+// INTERRUPT PWM (Nov 26, 2026, Gary's call): a Timer2 compare interrupt
+// drives the three FET outputs at 400 Hz, independent of loop() load.
+// This replaces setFetOutputs(), which ran from loop() and timed its
+// edges with millis() - any long loop pass (radio bursts, transmits,
+// serial prints) stretched or cut a pulse, the rogue widths on the
+// scope (Nov 26, 2026). Here the hardware timer owns the edges: one
+// tick every 25 us, 100 ticks per 2.5 ms cycle, each tick = 1% of
+// duty. The Rx handlers only write PWM_OUT_1/2/3 and analog_control;
+// the ISR does the rest. In DIGITAL mode the ISR stands down and the
+// digital Rx handler owns the pins, exactly as before. 0% and 100%
+// still fall out of the same comparison as steady off / steady on.
+// *********************************************************************
+volatile uint8_t _pwmTick = 0;   // 0..99 within the current 2.5 ms cycle.
 
- * Sub-routine to control 3 FET outputs using 0-100% PWM values.
- * Stops the PWM frequency at 0% and 100% to keep outputs purely steady-state.
- * 
- * @param duty1 Duty cycle for FET 1 (0 to 100)
- * @param duty2 Duty cycle for FET 2 (0 to 100)
- * @param duty3 Duty cycle for FET 3 (0 to 100)
- */
-
-void setFetOutputs(int duty1, int duty2, int duty3) {
-  // SOFTWARE PWM (Nov 24, 2026, Gary's call): the FET pins (A0-A2) are not
-  // hardware-PWM pins on the Nano, so the old analogWrite() calls there
-  // degraded to a plain on/off threshold at ~50% - no waveform at all. This
-  // routine toggles the pins in time instead: loop() calls it every pass,
-  // one PWM cycle is SOFTWARE_PWM_PERIOD_MS long, and each pin is ON for
-  // duty% of every cycle (0% = always off, 100% = always on fall out of the
-  // same comparison). Low frequency, but a true duty cycle.
-  // (The pins array holds the actual FET output pins - an earlier version of
-  // this routine mistakenly held the duty VALUES, so the writes went to pins
-  // numbered 0-100.)
-  int pins[3] = {o_FET1_PIN, o_FET2_PIN, o_FET3_PIN};
-  int duties[3] = {duty1, duty2, duty3};
-  static unsigned long _st_cycleStart = millis();
-  unsigned long _phase = (millis() - _st_cycleStart) % SOFTWARE_PWM_PERIOD_MS;
-  for (int i = 0; i < 3; i++) {
-    int targetDuty = constrain(duties[i], 0, 100);
-    unsigned long _onTime = (SOFTWARE_PWM_PERIOD_MS * (unsigned long)targetDuty) / 100;
-    digitalWrite(pins[i], (_phase < _onTime) ? HIGH : LOW);
-  }
+void Setup_PWMInterrupt(void)
+{
+  // Timer2 in CTC mode: the 16 MHz clock / 8 prescaler = 2 MHz (0.5 us
+  // per count); OCR2A = 49 gives a compare every 50 counts = 25 us.
+  // Timer2 is otherwise unused here - it would only conflict with
+  // analogWrite on pins 3 and 11, which this sketch never uses (the
+  // network light's analogWrite is pin 5, a Timer0 pin), and millis()
+  // and delay() run on Timer0, unaffected.
+  cli();
+  TCCR2A = 0;
+  TCCR2B = 0;
+  TCNT2 = 0;
+  OCR2A = 49;
+  TCCR2A |= (1 << WGM21);    // CTC: clear the timer on compare match.
+  TCCR2B |= (1 << CS21);     // Prescaler 8.
+  TIMSK2 |= (1 << OCIE2A);   // Enable the compare-A interrupt.
+  sei();
 }
+
+ISR(TIMER2_COMPA_vect)
+{
+  if (analog_control != PWM_OUTPUTS) return;  // DIGITAL mode: the Rx handler owns the pins.
+  // A0/A1/A2 are PORTC bits 0/1/2 on the Nano. One port write lands all
+  // three edges at the same instant; the mask preserves the other PORTC
+  // pins (A3-A5 are the analog inputs - their state must not change).
+  uint8_t _port = PORTC & ~0x07;
+  if (_pwmTick < PWM_OUT_1) _port |= 0x01;
+  if (_pwmTick < PWM_OUT_2) _port |= 0x02;
+  if (_pwmTick < PWM_OUT_3) _port |= 0x04;
+  PORTC = _port;
+  if (++_pwmTick >= PWM_TICKS_PER_CYCLE) _pwmTick = 0;
+}
+
 
 
 // ***************
@@ -691,21 +707,21 @@ void Loop_SendData(void)
     _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in1 message block
     _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 1;
-    _AnalogToPWM = constrain((analog_in1 / getSupplyVoltage())*100, 0, 100);
+    _AnalogToPWM = (uint8_t)constrain((analog_in1 / getSupplyVoltage())*100 + 0.5, 0, 100);   // ROUNDING FIX (Nov 26, 2026): +0.5 before the float-to-byte conversion, which truncated - 29.97% was sent as 29 (the 'values end in 9' bench observation). Now values round to the nearest percent.
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
     uint8_t _sent1 = _AnalogToPWM;  // Kept so the print after the send can show the actual values transmitted.
 
     _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in2 message block
     _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 2;
-    _AnalogToPWM = constrain((analog_in2 / getSupplyVoltage())*100, 0, 100);
+    _AnalogToPWM = (uint8_t)constrain((analog_in2 / getSupplyVoltage())*100 + 0.5, 0, 100);   // Rounding fix, as channel 1.
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
     uint8_t _sent2 = _AnalogToPWM;
 
     _WHAT_Tx_Packet.payload[_index++] = 4;                    // Length of analog in3 message block
     _WHAT_Tx_Packet.payload[_index++] = CMD_PWM01_04;  //MID
     _WHAT_Tx_Packet.payload[_index++] = 3;
-    _AnalogToPWM = constrain((analog_in3 / getSupplyVoltage())*100, 0, 100);
+    _AnalogToPWM = (uint8_t)constrain((analog_in3 / getSupplyVoltage())*100 + 0.5, 0, 100);   // Rounding fix, as channel 1.
     _WHAT_Tx_Packet.payload[_index++] = _AnalogToPWM;   // Data Value
     uint8_t _sent3 = _AnalogToPWM;
 
