@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112602
+#define WHAT_NETWORK_VERSION 26112603
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -1865,7 +1865,11 @@ void WHAT_StateCheck(void)
 
        if (gblJoining.replaceIntent)
        {
-         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 50,/*LightColor2 */ WHAT_LIGHT_WHITE,/*Light Color 2 time*/ 50 );
+         // REPLACEMENT PAIRING (Nov 26, 2026, Gary): once a network is in
+         // earshot, a replacement-intent preemie alternates WHITE/RED - the
+         // same pairing pattern the lost child's parent shows - instead of
+         // the steady WHITE of its blind search.
+         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 100 );
        }
        else
        {
@@ -1954,7 +1958,14 @@ void WHAT_StateCheck(void)
                 }
               }
               //else {Serial.println(gblScratch.timer1 - millis());}
-         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 10,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 200 );
+         if (gblJoining.replaceIntent)  // REPLACEMENT PAIRING (Nov 26, 2026, Gary): keep the WHITE/RED pairing pattern through the join itself.
+         {
+           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 100 );
+         }
+         else
+         {
+           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 10,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 200 );
+         }
   
       }// break;
 
@@ -2131,7 +2142,11 @@ void WHAT_StateCheck(void)
             }
             // *****************
 
-           if (gblMailbox.childLost)     // PROPOSED (Nov 25, 2026): a lost child outranks the alive blink - blink RED on the parent that lost one, until the child returns or a replacement takes its place. Indication only: no button act follows from it.
+           if (gblMailbox.childLost && gblJoining.heardReplaceIntent)     // REPLACEMENT PAIRING (Nov 26, 2026, Gary): this parent has a lost child AND a replacement is out there trying to connect - alternate WHITE/RED, the pairing pattern, which outranks the plain lost-child blink below.
+           {
+           _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 100 );
+           }
+           else if (gblMailbox.childLost)     // PROPOSED (Nov 25, 2026): a lost child outranks the alive blink - blink RED on the parent that lost one, until the child returns or a replacement takes its place. Indication only: no button act follows from it.
            {
            _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_RED,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_OFF,/*Light Color 2 time*/ 500 );
            }
@@ -2183,7 +2198,14 @@ void WHAT_StateCheck(void)
         // If the network button on this device is pressed, notify the network and child that
         // the operator is allowing it to join.  Also propose a child address (if Available).
 
+        if (gblJoining.heardReplaceIntent && (WHAT_IndicatedLostChild() != 0xFF))  // REPLACEMENT PAIRING (Nov 26, 2026, Gary): a replacement is trying to connect to THIS parent's lost child - WHITE/RED instead of the ordinary blue/green join indication.
+        {
+        _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 100 );
+        }
+        else
+        {
         _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_BLUE,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_GREEN,/*Light Color 2 time*/ 100 );
+        }
         //Serial.print(F("gblMailbox.networkState: WHAT_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
         //gblMailbox.networkStateColor = WHAT_LIGHT_GREEN;
          if (gblMailbox.networkButton == HIGH) // Button is active high.
@@ -2304,7 +2326,14 @@ void WHAT_StateCheck(void)
         }
       }
 
+      if (gblJoining.heardReplaceIntent && (WHAT_IndicatedLostChild() != 0xFF))  // REPLACEMENT PAIRING (Nov 26, 2026, Gary): the pairing pattern holds while the replacement's offer is outstanding.
+      {
+      _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_WHITE,/*Light Color 1 time*/ 100,/*LightColor2 */ WHAT_LIGHT_RED,/*Light Color 2 time*/ 100 );
+      }
+      else
+      {
       _Control_Net_Light(/*LightColor1*/ WHAT_LIGHT_GREEN,/*Light Color 1 time*/ 500,/*LightColor2 */ WHAT_LIGHT_BLUE,/*Light Color 2 time*/ 100 );
+      }
 
       if (gblScratch.timer1 <= millis()) //Timer set when a network button was pressed.  there is 30seconds to connect.
         {
