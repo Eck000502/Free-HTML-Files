@@ -1,4 +1,4 @@
-#define WHAT_NETWORK_VERSION 26112702
+#define WHAT_NETWORK_VERSION 26112703
 /*
    Allows WHAT communications.
    Easy message reception can be handled through a registration process.
@@ -1347,6 +1347,7 @@ void WHAT_StateCheck(void)
   #define _RQST_ACK_DELAY 5000  // wait 5 second after requesting an ACK before using the PANID
 
   #define _WHAT_NEW_CHILD_TIME_DELAY 60000 // Only stay in new child mode for 30 seconds if not accepted earlier.
+  #define WHAT_JOIN_COOLDOWN_MS 30000 // JOIN COOLDOWN (Nov 27, 2026, Gary): after a join engagement ends with no join, a member ignores that preemie's searches for this long (~15 searches at the ~2 s cadence) so the lamps rest between failed attempts. A button press or a heard allow clears it instantly - it only governs the nobody-is-trying case.
 
   bool default_case = true;    // Each routine will mark this as false so if NONE are executed, default will be true.
   static uint8_t _st_AbandonTries = 0;  // PROPOSED (Nov 25, 2026): how many times the leaver has sent its ABANDON_CHILD_05 in the reset ritual's confirmation wait.
@@ -2183,10 +2184,27 @@ void WHAT_StateCheck(void)
             if (gblRxFlags.f_REQUEST_JOIN_NETWORK_03)   // A preemie is attempting to join the network.
             {
                 gblRxFlags.f_REQUEST_JOIN_NETWORK_03 = false; // Mark the reception flag as used so it is not duplicated.
+                // JOIN COOLDOWN (Nov 27, 2026, Gary): if THIS attempt recently
+                // ended with no join, stay in NET_ALIVE and let the lamps rest -
+                // unless a human is acting now: this device's own button press,
+                // or an allow heard for this attempt, clears the cooldown and
+                // engages immediately. A different preemie (different temp ID)
+                // is never gated.
+                if ((gblJoining.joinCooldownUntil > millis()) && (gblJoining.joinCooldownTempID == gblJoining.heardTempID)
+                    && (gblMailbox.networkButton != HIGH) && !gblRxFlags.f_NETWORK_ALLOW_PREEMIE_04)
+                {
+                  #ifdef CHILD_MONITOR
+                  Serial.println(F("Join cooldown - ignoring this preemie for now"));
+                  #endif
+                }
+                else
+                {
+                gblJoining.joinCooldownUntil = 0; // Engaging: any cooldown on this attempt is over.
                 gblMailbox.networkState = WHAT_PRE_NEW_CHILD_REQ;
                 #ifdef CHILD_MONITOR
                 Serial.print(F("gblMailbox.networkState: WHAT_PRE_NEW_CHILD_REQ ")); Serial.println(gblMailbox.networkState);
                 #endif
+                }
             }
        // PROPOSED (Nov 25, 2026): note what is NOT here - there is no
        // button-erase of a lost child's record (Gary's ruling, Nov 25, 2026,
@@ -2357,6 +2375,8 @@ void WHAT_StateCheck(void)
            #ifdef CHILD_MONITOR
            Serial.println(F("\n Allow timer expired"));
            #endif
+           gblJoining.joinCooldownTempID = gblJoining.heardTempID;   // JOIN COOLDOWN (Nov 27, 2026): this engagement ended with no join - arm the cooldown for this attempt.
+           gblJoining.joinCooldownUntil = millis() + WHAT_JOIN_COOLDOWN_MS;
            gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
          }
       }//break;
@@ -2433,6 +2453,8 @@ void WHAT_StateCheck(void)
             #endif
             gblJoining.replaceOffer = false;        // PROPOSED (Nov 25, 2026): the attempt is over - disarm any replacement offer and forget the heard intent.
             gblJoining.heardReplaceIntent = false;  // PROPOSED (Nov 25, 2026): the next attempt latches its own.
+            gblJoining.joinCooldownTempID = gblJoining.heardTempID;   // JOIN COOLDOWN (Nov 27, 2026): the offer was not taken - arm the cooldown for this attempt.
+            gblJoining.joinCooldownUntil = millis() + WHAT_JOIN_COOLDOWN_MS;
             gblMailbox.networkState = WHAT_PRE_NET_ALIVE; // Reset to the "normal" state when the timer expires.
         }
         if(gblRxFlags.f_ACCEPT_PARENT_06)
